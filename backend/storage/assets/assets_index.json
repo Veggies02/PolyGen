@@ -1,0 +1,178 @@
+[
+  {
+    "id": "8678ff4b",
+    "title": "Futuristic Hovering Crystal (Scifi)",
+    "prompt": "futuristic hovering crystal sensor",
+    "negative_prompt": null,
+    "provider": "demo",
+    "style": "scifi",
+    "poly_count": 44,
+    "vertex_count": 36,
+    "file_size_bytes": 2488,
+    "formats": {
+      "glb": "/api/assets/8678ff4b/download/glb",
+      "obj": "/api/assets/8678ff4b/download/obj",
+      "stl": "/api/assets/8678ff4b/download/stl"
+    },
+    "thumbnail_url": null,
+    "tags": [
+      "scifi",
+      "procedural",
+      "demo-engine",
+      "budget-medium"
+    ],
+    "created_at": "2026-11-13 14:35:03.130318+00:00",
+    "is_demo": true,
+    "attributes": {
+      "symmetry": true,
+      "poly_budget": "medium",
+      "seed": null,
+      "engine": "PolyGen Procedural v1.0",
+      "is_demo": true
+    }
+  },
+  {
+    "id": "c6f81892",
+    "title": "Futuristic Hovering Crystal (Scifi)",
+    "prompt": "futuristic hovering crystal sensor",
+    "negative_prompt": null,
+    "provider": "demo",
+    "style": "scifi",
+    "poly_count": 44,
+    "vertex_count": 36,
+    "file_size_bytes": 2488,
+    "formats": {
+      "glb": "/api/assets/c6f81892/download/glb",
+      "obj": "/api/assets/c6f81892/download/obj",
+      "stl": "/api/assets/c6f81892/download/stl"
+    },
+    "thumbnail_url": null,
+    "tags": [
+      "scifi",
+      "procedural",
+      "demo-engine",
+      "budget-medium"
+    ],
+    "created_at": "2026-11-13 11:36:41.555761+00:00",
+    "is_demo": true,
+    "attributes": {
+      "symmetry": true,
+      "poly_budget": "medium",
+      "seed": null,
+      "engine": "PolyGen Procedural v1.0",
+      "is_demo": true
+    }
+  },
+  {
+    "id": "be052586",
+    "title": "Quantum Kinetic Gyroscope",
+    "prompt": "nested concentric kinetic gyroscope rings enclosing a glowing polyhedral core",
+    "negative_prompt": null,
+    "provider": "demo",
+    "style": "scifi",
+    "poly_count": 1300,
+    "vertex_count": 652,
+    "file_size_bytes": 32376,
+    "formats": {
+      "glb": "/api/assets/be052586/download/glb",
+      "obj": "/api/assets/be052586/download/obj",
+      "stl": "/api/assets/be052586/download/stl"
+    },
+    "thumbnail_url": null,
+    "tags": [
+      "scifi",
+      "curated-sample",
+      "demo"
+    ],
+    "created_at": "2026-11-13 11:36:38.105765+00:00",
+    "is_demo": true,
+    "attributes": {
+      "curated": true,
+      "engine": "PolyGen Procedural Core"
+    }
+  },
+  {
+    "id": "f36dbdce",
+    "title": "Vanguard Exo-Combat Helmet",
+    "prompt": "cyberpunk tactical combat helmet with reinforced ballistic visor and rebreather",
+    "negative_prompt": null,
+    "provider": "demo",
+    "style": "cyberpunk",
+    "poly_count": 572,
+    "vertex_count": 323,
+    "file_size_bytes": 15668,
+    "formats": {
+      "glb": "/api/assets/f36dbdce/download/glb",
+      "obj": "/api/assets/f36dbdce/download/obj",
+      "stl": "/api/assets/f36dbdce/download/stl"
+    },
+    "thumbnail_url": null,
+    "tags": [
+      "cyberpunk",
+      "curated-sample",
+      "demo"
+    ],
+    "created_at": "2026-11-13 11:36:38.082522+00:00",
+    "is_demo": true,
+    "attributes": {
+      "curated": true,
+      "engine": "PolyGen Procedural Core"
+    }
+  },
+  {
+    "id": "3038f2cc",
+    "title": "Obsidian Resonator Monolith",
+    "prompt": "obsidian crystal cluster monolith with faceted mineral spires",
+    "negative_prompt": null,
+    "provider": "demo",
+    "style": "low-poly",
+    "poly_count": 44,
+    "vertex_count": 36,
+    "file_size_bytes": 2488,
+    "formats": {
+      "glb": "/api/assets/3038f2cc/download/glb",
+      "obj": "/api/assets/3038f2cc/download/obj",
+      "stl": "/api/assets/3038f2cc/download/stl"
+    },
+    "thumbnail_url": null,
+    "tags": [
+      "low-poly",
+      "curated-sample",
+      "demo"
+    ],
+    "created_at": "2026-11-13 11:36:38.063345+00:00",
+    "is_demo": true,
+    "attributes": {
+      "curated": true,
+      "engine": "PolyGen Procedural Core"
+    }
+  },
+  {
+    "id": "e8b1fda1",
+    "title": "Cyber Recon Drone X-1",
+    "prompt": "futuristic stealth tactical recon drone with dual thruster wings and sensor array",
+    "negative_prompt": null,
+    "provider": "demo",
+    "style": "scifi",
+    "poly_count": 108,
+    "vertex_count": 72,
+    "file_size_bytes": 4048,
+    "formats": {
+      "glb": "/api/assets/e8b1fda1/download/glb",
+      "obj": "/api/assets/e8b1fda1/download/obj",
+      "stl": "/api/assets/e8b1fda1/download/stl"
+    },
+    "thumbnail_url": null,
+    "tags": [
+      "scifi",
+      "curated-sample",
+      "demo"
+    ],
+    "created_at": "2026-11-13 11:36:38.058516+00:00",
+    "is_demo": true,
+    "attributes": {
+      "curated": true,
+      "engine": "PolyGen Procedural Core"
+    }
+  }
+]

@@ -1,0 +1,26 @@
+# Node
+node_modules/
+dist/
+.oxlintrc.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Local Storage (Keep assets directory structure, ignore transient generated files)
+backend/storage/assets/*/*.glb
+backend/storage/assets/*/*.obj
+backend/storage/assets/*/*.stl
+
+# Environment
+.env
+.env.local
+*.log
+.DS_Store
+Thumbs.db
