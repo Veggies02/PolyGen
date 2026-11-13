@@ -12,12 +12,15 @@ import {
   Grid, 
   Box, 
   Sliders, 
-  MousePointer,
-  Move,
-  RotateCw,
-  Scale,
-  Ruler,
-  ChevronDown
+  MousePointer, 
+  Move, 
+  RotateCw, 
+  Scale, 
+  Ruler, 
+  ChevronDown, 
+  Minimize2, 
+  Maximize2,
+  Plus
 } from 'lucide-react';
 import { api } from '../../api/client';
 
@@ -34,6 +37,8 @@ interface Canvas3DProps {
     materialCount: number;
   }) => void;
   className?: string;
+  isZenMode?: boolean;
+  onToggleZenMode?: () => void;
 }
 
 export const Canvas3D: React.FC<Canvas3DProps> = ({
@@ -44,6 +49,8 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   onOptionsChange,
   onStatsCalculated,
   className = '',
+  isZenMode = false,
+  onToggleZenMode,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const gizmoCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -52,18 +59,28 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const modelGroupRef = useRef<THREE.Group | null>(null);
+  const primitivesGroupRef = useRef<THREE.Group | null>(null);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const lightsGroupRef = useRef<THREE.Group | null>(null);
+  const boxHelperRef = useRef<THREE.BoxHelper | null>(null);
 
   const [loading, setLoading] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Mixar studio states
-  const [activeTab, setActiveTab] = useState<'modeling' | 'zen' | 'uv' | 'texturing'>('modeling');
+  // Studio tabs and tools
+  const [activeTab, setActiveTab] = useState<'modeling' | 'uv' | 'texturing'>('modeling');
   const [activeTool, setActiveTool] = useState<'select' | 'move' | 'rotate' | 'scale' | 'transform' | 'measure'>('select');
+  const [objectMode, setObjectMode] = useState<'Object Mode' | 'Edit Mode' | 'Sculpt Mode'>('Object Mode');
+  const [coordSystem, setCoordSystem] = useState<'Global' | 'Local'>('Global');
+  const [showAddMenu, setShowAddMenu] = useState<boolean>(false);
+  const [showModeMenu, setShowModeMenu] = useState<boolean>(false);
+  const [showDownloadMenu, setShowDownloadMenu] = useState<boolean>(false);
+  
+  // Animation / Turntable timeline
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentFrame, setCurrentFrame] = useState<number>(1);
-  const [showDownloadMenu, setShowDownloadMenu] = useState<boolean>(false);
+  const [showDimensions, setShowDimensions] = useState<boolean>(false);
+  const [liveBounds, setLiveBounds] = useState<{ x: number; y: number; z: number }>({ x: 1, y: 1, z: 1 });
 
   // Initialize Three.js Scene
   useEffect(() => {
@@ -100,19 +117,28 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     controls.maxDistance = 30;
     controlsRef.current = controls;
 
+    // Dual-Tier Ground Grid
     const grid = new THREE.GridHelper(16, 32, 0x00f0ff, 0x1f2638);
     grid.position.y = 0;
     scene.add(grid);
     gridHelperRef.current = grid;
 
+    // Lights
     const lightsGroup = new THREE.Group();
     scene.add(lightsGroup);
     lightsGroupRef.current = lightsGroup;
 
+    // Model Group
     const modelGroup = new THREE.Group();
     scene.add(modelGroup);
     modelGroupRef.current = modelGroup;
 
+    // Primitives Group (for Add menu shapes)
+    const primitivesGroup = new THREE.Group();
+    scene.add(primitivesGroup);
+    primitivesGroupRef.current = primitivesGroup;
+
+    // Resize Observer
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const w = entry.contentRect.width;
@@ -149,6 +175,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     };
   }, []);
 
+  // Draw 3D Orientation Gizmo (X/Y/Z)
   const drawOrientationGizmo = () => {
     const canvas = gizmoCanvasRef.current;
     if (!canvas || !cameraRef.current) return;
@@ -158,7 +185,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const cx = canvas.width / 2;
     const cy = canvas.height / 2;
-    const radius = 32;
+    const radius = 30;
 
     const camera = cameraRef.current;
     const rotMat = new THREE.Matrix4().extractRotation(camera.matrixWorldInverse);
@@ -194,6 +221,88 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     });
   };
 
+  // Click on Gizmo to snap camera
+  const handleSnapCamera = (axis: 'x' | 'y' | 'z') => {
+    if (!cameraRef.current || !controlsRef.current) return;
+    const dist = 5.0;
+    if (axis === 'x') {
+      cameraRef.current.position.set(dist, 1.0, 0);
+    } else if (axis === 'y') {
+      cameraRef.current.position.set(0.01, dist, 0.01);
+    } else {
+      cameraRef.current.position.set(0, 1.0, dist);
+    }
+    controlsRef.current.target.set(0, 0.8, 0);
+    controlsRef.current.update();
+  };
+
+  // Add 3D Primitive Shape into Scene (Cube, Sphere, Cylinder, Torus)
+  const handleAddPrimitive = (type: 'cube' | 'sphere' | 'cylinder' | 'torus') => {
+    if (!primitivesGroupRef.current) return;
+    let geom: THREE.BufferGeometry;
+    if (type === 'cube') {
+      geom = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+    } else if (type === 'sphere') {
+      geom = new THREE.SphereGeometry(0.5, 24, 24);
+    } else if (type === 'cylinder') {
+      geom = new THREE.CylinderGeometry(0.4, 0.4, 1.0, 24);
+    } else {
+      geom = new THREE.TorusGeometry(0.5, 0.2, 16, 32);
+    }
+
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x38bdf8,
+      roughness: 0.3,
+      metalness: 0.8,
+    });
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.position.set(
+      (Math.random() - 0.5) * 2.0,
+      0.6,
+      (Math.random() - 0.5) * 2.0
+    );
+    mesh.castShadow = true;
+    primitivesGroupRef.current.add(mesh);
+    setShowAddMenu(false);
+  };
+
+  // Left Tool Action Handlers
+  const handleToolClick = (tool: typeof activeTool) => {
+    setActiveTool(tool);
+    if (!modelGroupRef.current) return;
+
+    if (tool === 'select') {
+      // Toggle bounding box selection helper
+      if (boxHelperRef.current && sceneRef.current) {
+        sceneRef.current.remove(boxHelperRef.current);
+        boxHelperRef.current = null;
+      } else if (sceneRef.current) {
+        const box = new THREE.BoxHelper(modelGroupRef.current, 0x84cc16);
+        sceneRef.current.add(box);
+        boxHelperRef.current = box;
+      }
+    } else if (tool === 'move') {
+      // Step position along X
+      modelGroupRef.current.position.x = (modelGroupRef.current.position.x + 0.3) % 1.5;
+    } else if (tool === 'rotate') {
+      // Rotate 45 degrees
+      modelGroupRef.current.rotation.y += Math.PI / 4;
+    } else if (tool === 'scale') {
+      // Cycle scale 1.0 -> 1.25 -> 1.5 -> 0.8 -> 1.0
+      const currentScale = modelGroupRef.current.scale.x;
+      const nextScale = currentScale >= 1.5 ? 0.8 : currentScale + 0.25;
+      modelGroupRef.current.scale.set(nextScale, nextScale, nextScale);
+    } else if (tool === 'transform') {
+      // Reset position, rotation, scale to defaults
+      modelGroupRef.current.position.set(0, 0, 0);
+      modelGroupRef.current.rotation.set(0, 0, 0);
+      modelGroupRef.current.scale.set(1, 1, 1);
+    } else if (tool === 'measure') {
+      setShowDimensions((prev) => !prev);
+    }
+  };
+
+  // Timeline Scrubber
   useEffect(() => {
     let interval: any;
     if (isPlaying) {
@@ -210,6 +319,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     return () => clearInterval(interval);
   }, [isPlaying]);
 
+  // Update Lighting Preset
   useEffect(() => {
     if (!lightsGroupRef.current) return;
     const group = lightsGroupRef.current;
@@ -261,6 +371,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     }
   }, [options.lightingPreset]);
 
+  // Update Background & Controls
   useEffect(() => {
     if (sceneRef.current) {
       sceneRef.current.background = new THREE.Color(options.backgroundColor);
@@ -285,6 +396,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     }
   };
 
+  // Load Model
   useEffect(() => {
     if (!modelGroupRef.current || !modelUrl) return;
     const group = modelGroupRef.current;
@@ -306,6 +418,12 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
         object.position.x = -center.x;
         object.position.z = -center.z;
         object.position.y = -bbox.min.y;
+
+        setLiveBounds({
+          x: Number(size.x.toFixed(2)),
+          y: Number(size.y.toFixed(2)),
+          z: Number(size.z.toFixed(2)),
+        });
 
         let totalVertices = 0;
         let totalPolys = 0;
@@ -371,12 +489,13 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       undefined,
       (error) => {
         console.error('Failed to load 3D model:', error);
-        setLoadError('Failed to load GLB model. Check file path or generation status.');
+        setLoadError('Failed to load GLB model. Check network connection or file path.');
         setLoading(false);
       }
     );
   }, [modelUrl]);
 
+  // Apply Shading Mode & Tab Mode
   const applyShadingAndWireframe = useCallback(() => {
     if (!modelGroupRef.current) return;
 
@@ -384,6 +503,32 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       if ((child as THREE.Mesh).isMesh) {
         const mesh = child as THREE.Mesh;
         const origMat = mesh.userData.originalMaterial;
+
+        // If in UV Editing tab, apply UV grid texture
+        if (activeTab === 'uv') {
+          // Procedural checkerboard canvas texture
+          const canvas = document.createElement('canvas');
+          canvas.width = 128;
+          canvas.height = 128;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(0, 0, 128, 128);
+            ctx.fillStyle = '#0284c7';
+            ctx.fillRect(0, 0, 64, 64);
+            ctx.fillRect(64, 64, 64, 64);
+          }
+          const tex = new THREE.CanvasTexture(canvas);
+          tex.wrapS = THREE.RepeatWrapping;
+          tex.wrapT = THREE.RepeatWrapping;
+          tex.repeat.set(4, 4);
+          mesh.material = new THREE.MeshStandardMaterial({
+            map: tex,
+            roughness: 0.5,
+            wireframe: options.wireframe,
+          });
+          return;
+        }
 
         if (options.shadingMode === 'clay') {
           mesh.material = new THREE.MeshStandardMaterial({
@@ -417,7 +562,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
         }
       }
     });
-  }, [options.shadingMode, options.wireframe]);
+  }, [options.shadingMode, options.wireframe, activeTab]);
 
   useEffect(() => {
     applyShadingAndWireframe();
@@ -426,16 +571,21 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   return (
     <div className={`relative w-full h-full overflow-hidden select-none flex flex-col bg-[#0c0e14] ${className}`}>
       {/* 1. TOP MIXAR STUDIO WORKSPACE HEADER STRIP */}
-      <div className="h-10 px-4 bg-slate-950/90 border-b border-slate-800/80 flex items-center justify-between z-20 shrink-0">
+      <div className="h-10 px-4 bg-slate-950/95 border-b border-slate-800/80 flex items-center justify-between z-20 shrink-0">
         <div className="flex items-center gap-1.5 text-xs">
+          {/* Zen Mode Button */}
           <button
-            onClick={() => setActiveTab('zen')}
-            className={`px-3 py-1 rounded-md transition-colors ${
-              activeTab === 'zen' ? 'text-white font-medium' : 'text-slate-400 hover:text-slate-200'
+            onClick={onToggleZenMode}
+            className={`px-3 py-1 rounded-md transition-colors flex items-center gap-1 ${
+              isZenMode ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
             }`}
+            title="Toggle Zen Mode (Fullscreen Viewport)"
           >
-            Zen Mode
+            {isZenMode ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            <span>Zen Mode</span>
           </button>
+
+          {/* Modeling tab */}
           <button
             onClick={() => setActiveTab('modeling')}
             className={`px-3.5 py-1 rounded-full text-xs font-semibold transition-all ${
@@ -446,26 +596,29 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           >
             Modeling
           </button>
+
+          {/* UV Editing tab */}
           <button
             onClick={() => setActiveTab('uv')}
             className={`px-3 py-1 rounded-md transition-colors ${
-              activeTab === 'uv' ? 'text-white font-medium' : 'text-slate-400 hover:text-slate-200'
+              activeTab === 'uv' ? 'bg-sky-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
             UV Editing
           </button>
+
+          {/* Texturing tab */}
           <button
             onClick={() => setActiveTab('texturing')}
             className={`px-3 py-1 rounded-md transition-colors ${
-              activeTab === 'texturing' ? 'text-white font-medium' : 'text-slate-400 hover:text-slate-200'
+              activeTab === 'texturing' ? 'bg-indigo-500 text-white font-bold' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
             Texturing
           </button>
-          <span className="text-slate-600 px-1">+</span>
         </div>
 
-        {/* Action strip with Asset Title */}
+        {/* Action strip with Object Mode, Add, Global, Options */}
         <div className="flex items-center gap-2 text-xs text-slate-400">
           {assetTitle && (
             <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-xs font-medium text-slate-200">
@@ -474,32 +627,96 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
             </div>
           )}
 
-          <div className="hidden sm:flex items-center gap-2 px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-[11px]">
-            <Box className="w-3.5 h-3.5 text-lime-400" />
-            <span className="text-slate-200 font-medium">Object Mode</span>
-            <ChevronDown className="w-3 h-3 text-slate-500" />
+          {/* Object Mode Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowModeMenu(!showModeMenu)}
+              className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-[11px] text-slate-200 hover:text-white"
+            >
+              <Box className="w-3.5 h-3.5 text-lime-400" />
+              <span className="font-medium">{objectMode}</span>
+              <ChevronDown className="w-3 h-3 text-slate-500" />
+            </button>
+            {showModeMenu && (
+              <div className="absolute left-0 top-full mt-1 w-36 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-1 z-40 flex flex-col gap-0.5 text-xs">
+                {(['Object Mode', 'Edit Mode', 'Sculpt Mode'] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => {
+                      setObjectMode(m);
+                      setShowModeMenu(false);
+                    }}
+                    className={`px-2.5 py-1.5 rounded-lg text-left text-xs ${
+                      objectMode === m ? 'bg-lime-500/20 text-lime-400 font-semibold' : 'text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
-          <div className="hidden md:flex items-center gap-3 text-[11px]">
-            <span className="hover:text-slate-200 cursor-pointer">View</span>
-            <span className="hover:text-slate-200 cursor-pointer">Select</span>
-            <span className="hover:text-slate-200 cursor-pointer">Add</span>
-            <span className="hover:text-slate-200 cursor-pointer">Object</span>
+          {/* Add Primitive Mesh Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowAddMenu(!showAddMenu)}
+              className="flex items-center gap-1 px-2.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[11px] text-slate-200 hover:text-white"
+            >
+              <Plus className="w-3 h-3 text-cyan-400" />
+              <span>Add</span>
+              <ChevronDown className="w-3 h-3 text-slate-500" />
+            </button>
+
+            {showAddMenu && (
+              <div className="absolute left-0 top-full mt-1 w-40 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-1.5 z-40 flex flex-col gap-1 text-xs">
+                <span className="text-[10px] font-bold uppercase text-slate-500 px-2 py-0.5">3D Primitives</span>
+                <button
+                  onClick={() => handleAddPrimitive('cube')}
+                  className="px-2.5 py-1 rounded-lg text-left hover:bg-slate-800 text-slate-200"
+                >
+                  Cube
+                </button>
+                <button
+                  onClick={() => handleAddPrimitive('sphere')}
+                  className="px-2.5 py-1 rounded-lg text-left hover:bg-slate-800 text-slate-200"
+                >
+                  Sphere
+                </button>
+                <button
+                  onClick={() => handleAddPrimitive('cylinder')}
+                  className="px-2.5 py-1 rounded-lg text-left hover:bg-slate-800 text-slate-200"
+                >
+                  Cylinder
+                </button>
+                <button
+                  onClick={() => handleAddPrimitive('torus')}
+                  className="px-2.5 py-1 rounded-lg text-left hover:bg-slate-800 text-slate-200"
+                >
+                  Torus
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="w-px h-4 bg-slate-800 mx-1 hidden sm:block" />
 
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-[11px]">
-            <span className="text-slate-200">Global</span>
-            <ChevronDown className="w-3 h-3 text-slate-500" />
-          </div>
+          {/* Global / Local Coordinate Space */}
+          <button
+            onClick={() => setCoordSystem(coordSystem === 'Global' ? 'Local' : 'Global')}
+            className="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-[11px] text-slate-200"
+            title="Toggle Coordinate Space (Global / Local)"
+          >
+            <span>{coordSystem}</span>
+          </button>
 
+          {/* Options Dropdown for Exports */}
           <div className="relative">
             <button
               onClick={() => setShowDownloadMenu(!showDownloadMenu)}
               className="flex items-center gap-1 px-2.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-200 hover:text-white transition-colors text-[11px]"
             >
-              <span>Options</span>
+              <span>Export</span>
               <ChevronDown className="w-3 h-3 text-slate-500" />
             </button>
 
@@ -541,10 +758,10 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
         <div ref={containerRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
 
         {/* LEFT FLOATING MIXAR TOOLBAR */}
-        <div className="absolute left-4 top-4 z-20 flex flex-col gap-1 p-1 bg-slate-950/80 backdrop-blur-md border border-slate-800/80 rounded-xl shadow-2xl text-slate-400">
+        <div className="absolute left-4 top-4 z-20 flex flex-col gap-1 p-1 bg-slate-950/85 backdrop-blur-md border border-slate-800/80 rounded-xl shadow-2xl text-slate-400">
           <button
-            onClick={() => setActiveTool('select')}
-            title="Box Select"
+            onClick={() => handleToolClick('select')}
+            title="Box Select (Toggle Bounding Box)"
             className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
               activeTool === 'select'
                 ? 'bg-lime-500 text-slate-950 font-bold shadow-md shadow-lime-500/20'
@@ -556,8 +773,8 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           </button>
 
           <button
-            onClick={() => setActiveTool('move')}
-            title="Move Tool"
+            onClick={() => handleToolClick('move')}
+            title="Translate / Move Object"
             className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
               activeTool === 'move'
                 ? 'bg-lime-500 text-slate-950 font-bold'
@@ -569,8 +786,8 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           </button>
 
           <button
-            onClick={() => setActiveTool('rotate')}
-            title="Rotate Tool"
+            onClick={() => handleToolClick('rotate')}
+            title="Rotate 45°"
             className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
               activeTool === 'rotate'
                 ? 'bg-lime-500 text-slate-950 font-bold'
@@ -582,8 +799,8 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           </button>
 
           <button
-            onClick={() => setActiveTool('scale')}
-            title="Scale Tool"
+            onClick={() => handleToolClick('scale')}
+            title="Cycle Scale"
             className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
               activeTool === 'scale'
                 ? 'bg-lime-500 text-slate-950 font-bold'
@@ -595,8 +812,8 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           </button>
 
           <button
-            onClick={() => setActiveTool('transform')}
-            title="Universal Transform"
+            onClick={() => handleToolClick('transform')}
+            title="Reset Position / Rotation"
             className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
               activeTool === 'transform'
                 ? 'bg-lime-500 text-slate-950 font-bold'
@@ -608,10 +825,10 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           </button>
 
           <button
-            onClick={() => setActiveTool('measure')}
-            title="Measure Topology"
+            onClick={() => handleToolClick('measure')}
+            title="Measure Topology Dimensions"
             className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
-              activeTool === 'measure'
+              showDimensions || activeTool === 'measure'
                 ? 'bg-lime-500 text-slate-950 font-bold'
                 : 'hover:bg-slate-800 hover:text-slate-200'
             }`}
@@ -621,18 +838,56 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           </button>
         </div>
 
+        {/* DIMENSIONS CALLOUT OVERLAY (when Measure tool active) */}
+        {showDimensions && (
+          <div className="absolute left-20 top-4 z-20 p-2.5 rounded-xl bg-slate-950/90 border border-lime-500/40 text-xs font-mono text-lime-400 backdrop-blur-md shadow-2xl flex flex-col gap-1">
+            <span className="text-[10px] uppercase font-bold text-slate-400">Mesh Bounding Bounds</span>
+            <span>X (Width):  {liveBounds.x} m</span>
+            <span>Y (Height): {liveBounds.y} m</span>
+            <span>Z (Depth):  {liveBounds.z} m</span>
+          </div>
+        )}
+
         {/* TOP-RIGHT 3D ORIENTATION GIZMO (X/Y/Z) */}
         <div className="absolute right-4 top-4 z-20 flex flex-col items-center gap-2">
-          <div className="relative w-20 h-20 bg-slate-950/70 border border-slate-800/80 rounded-2xl backdrop-blur-md p-1 shadow-2xl flex items-center justify-center">
+          <div 
+            onClick={() => handleSnapCamera('z')}
+            title="Click to snap Front View (Z)"
+            className="relative w-20 h-20 bg-slate-950/80 border border-slate-800/80 rounded-2xl backdrop-blur-md p-1 shadow-2xl flex items-center justify-center cursor-pointer hover:border-slate-600 transition-colors"
+          >
             <canvas ref={gizmoCanvasRef} width={76} height={76} className="pointer-events-none" />
           </div>
-          <button
-            onClick={handleResetCamera}
-            title="Align / Reset View"
-            className="px-2.5 py-1 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-800 text-[10px] text-slate-400 hover:text-white transition-colors"
-          >
-            Reset Camera
-          </button>
+
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => handleSnapCamera('x')}
+              title="Snap Right View (X)"
+              className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[9px] text-red-400 hover:bg-slate-800 font-bold"
+            >
+              X
+            </button>
+            <button
+              onClick={() => handleSnapCamera('y')}
+              title="Snap Top View (Y)"
+              className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[9px] text-green-400 hover:bg-slate-800 font-bold"
+            >
+              Y
+            </button>
+            <button
+              onClick={() => handleSnapCamera('z')}
+              title="Snap Front View (Z)"
+              className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[9px] text-blue-400 hover:bg-slate-800 font-bold"
+            >
+              Z
+            </button>
+            <button
+              onClick={handleResetCamera}
+              title="Reset Orbit"
+              className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[9px] text-slate-300 hover:bg-slate-800 font-bold"
+            >
+              Fit
+            </button>
+          </div>
         </div>
 
         {/* FLOATING BOTTOM TRIPO/MIXAR PILL UTILITY BAR */}
@@ -676,7 +931,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           <select
             value={options.shadingMode}
             onChange={(e) => onOptionsChange?.({ ...options, shadingMode: e.target.value as any })}
-            className="bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none"
+            className="bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none cursor-pointer"
           >
             <option value="pbr">PBR Shaded</option>
             <option value="clay">Clay Studio</option>
@@ -713,7 +968,10 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
             {isPlaying ? <Pause className="w-3.5 h-3.5 text-lime-400" /> : <Play className="w-3.5 h-3.5 text-lime-400 fill-lime-400" />}
           </button>
           <button
-            onClick={() => setCurrentFrame(1)}
+            onClick={() => {
+              setCurrentFrame(1);
+              if (modelGroupRef.current) modelGroupRef.current.rotation.y = 0;
+            }}
             className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
             title="Reset frame"
           >

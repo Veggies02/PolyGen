@@ -28,6 +28,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigateGallery,
 }) => {
   const [activeTooltip, setActiveTooltip] = useState<boolean>(true);
+  const [regionTab, setRegionTab] = useState<'overview' | 'region'>('overview');
 
   const creativeLeaders = [
     {
@@ -254,10 +255,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
               <div className="flex items-center gap-2 text-xs">
                 <div className="flex items-center gap-1 p-0.5 bg-slate-950 rounded-lg border border-slate-800">
-                  <button className="px-2.5 py-1 rounded-md bg-slate-800 text-white font-medium text-[11px]">
+                  <button
+                    onClick={() => setRegionTab('overview')}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                      regionTab === 'overview' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
                     Overview
                   </button>
-                  <button className="px-2.5 py-1 rounded-md text-slate-400 hover:text-white text-[11px]">
+                  <button
+                    onClick={() => setRegionTab('region')}
+                    className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                      regionTab === 'region' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
                     My region
                   </button>
                 </div>

@@ -16,15 +16,31 @@ import {
 interface SidebarProps {
   currentView: 'dashboard' | 'studio' | 'gallery';
   onSelectView: (view: 'dashboard' | 'studio' | 'gallery') => void;
+  onOpenCommandPalette: () => void;
+  onOpenHelp: (section: 'guides' | 'faq' | 'support') => void;
+  onOpenPlan: () => void;
+  onOpenConfigApi: () => void;
   assetCount: number;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentView, onSelectView, assetCount }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ 
+  currentView, 
+  onSelectView, 
+  onOpenCommandPalette,
+  onOpenHelp,
+  onOpenPlan,
+  onOpenConfigApi,
+  assetCount 
+}) => {
   return (
     <aside className="w-60 bg-[#0d0f14] border-r border-slate-800/80 flex flex-col justify-between shrink-0 select-none overflow-y-auto font-sans">
       <div className="p-3.5 flex flex-col gap-4">
         {/* 1. USER PROFILE HEADER */}
-        <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800/60">
+        <div 
+          onClick={onOpenConfigApi}
+          className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800/60 cursor-pointer hover:border-slate-700 transition-colors"
+          title="Click to view Account & API configuration"
+        >
           <div className="flex items-center gap-2.5">
             <img
               src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=80&q=80"
@@ -40,13 +56,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onSelectView, ass
         </div>
 
         {/* 2. SEARCH BAR WITH SHORTCUT */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+        <div 
+          onClick={onOpenCommandPalette}
+          className="relative cursor-pointer group"
+          title="Press Ctrl+K or click to search"
+        >
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 group-hover:text-slate-300 transition-colors" />
           <input
             type="text"
-            placeholder="Search"
+            placeholder="Search commands & assets"
             readOnly
-            className="w-full pl-8 pr-8 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 placeholder-slate-500 cursor-pointer"
+            className="w-full pl-8 pr-8 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 placeholder-slate-500 cursor-pointer group-hover:border-slate-700 transition-colors"
           />
           <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono text-slate-500 border border-slate-800 px-1 rounded">
             ⌘K
@@ -96,20 +116,29 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onSelectView, ass
             </span>
           </button>
 
-          <div className="flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer">
+          <button
+            onClick={() => onSelectView('studio')}
+            className="flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer rounded-lg hover:bg-slate-900/40 text-left transition-colors"
+          >
             <div className="w-2 h-2 rounded-full bg-amber-400" />
             <span>VisionForge 3D</span>
-          </div>
+          </button>
 
-          <div className="flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer">
+          <button
+            onClick={() => onSelectView('studio')}
+            className="flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer rounded-lg hover:bg-slate-900/40 text-left transition-colors"
+          >
             <div className="w-2 h-2 rounded-full bg-blue-400" />
             <span>PromptLab</span>
-          </div>
+          </button>
 
-          <div className="flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer">
+          <button
+            onClick={() => onSelectView('studio')}
+            className="flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer rounded-lg hover:bg-slate-900/40 text-left transition-colors"
+          >
             <div className="w-2 h-2 rounded-full bg-pink-400" />
             <span>StreamCraft AI</span>
-          </div>
+          </button>
         </div>
 
         {/* 5. SECTION: DESIGN MODES */}
@@ -133,15 +162,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onSelectView, ass
             <span className="text-[10px] text-slate-500 font-mono">{assetCount}</span>
           </button>
 
-          <div className="flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer">
+          <button
+            onClick={() => onSelectView('dashboard')}
+            className="flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer rounded-lg hover:bg-slate-900/40 text-left transition-colors"
+          >
             <BarChart2 className="w-4 h-4 text-slate-500" />
             <span>Metrics</span>
-          </div>
+          </button>
 
-          <div className="flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer">
+          <button
+            onClick={() => onSelectView('dashboard')}
+            className="flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer rounded-lg hover:bg-slate-900/40 text-left transition-colors"
+          >
             <Users className="w-4 h-4 text-slate-500" />
             <span>Teams</span>
-          </div>
+          </button>
         </div>
 
         {/* 6. SECTION: GUIDES & HELP */}
@@ -150,20 +185,29 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onSelectView, ass
             Guides & Help
           </span>
 
-          <div className="flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer">
+          <button
+            onClick={() => onOpenHelp('guides')}
+            className="flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer rounded-lg hover:bg-slate-900/40 text-left transition-colors"
+          >
             <BookOpen className="w-4 h-4 text-slate-500" />
             <span>Guides</span>
-          </div>
+          </button>
 
-          <div className="flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer">
+          <button
+            onClick={() => onOpenHelp('faq')}
+            className="flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer rounded-lg hover:bg-slate-900/40 text-left transition-colors"
+          >
             <HelpCircle className="w-4 h-4 text-slate-500" />
             <span>FAQ</span>
-          </div>
+          </button>
 
-          <div className="flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer">
+          <button
+            onClick={() => onOpenHelp('support')}
+            className="flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer rounded-lg hover:bg-slate-900/40 text-left transition-colors"
+          >
             <LifeBuoy className="w-4 h-4 text-slate-500" />
             <span>Support Hub</span>
-          </div>
+          </button>
         </div>
       </div>
 
@@ -174,7 +218,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onSelectView, ass
           <span className="text-[11px] text-slate-400 leading-tight block">Get started with 14 days free.</span>
         </div>
 
-        <button className="w-full py-2 rounded-xl bg-slate-950 hover:bg-slate-900 border border-slate-800 text-xs font-medium text-slate-200 flex items-center justify-center gap-1.5 transition-colors">
+        <button
+          onClick={onOpenPlan}
+          className="w-full py-2 rounded-xl bg-slate-950 hover:bg-slate-900 border border-slate-800 text-xs font-medium text-slate-200 flex items-center justify-center gap-1.5 transition-colors"
+        >
           <Zap className="w-3.5 h-3.5 text-amber-400" />
           <span>Switch to Studio Plan</span>
         </button>

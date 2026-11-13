@@ -4,14 +4,15 @@ import { Box, ShieldCheck, Plus } from 'lucide-react';
 interface HeaderProps {
   currentView: string;
   onNavigateStudio: () => void;
+  onOpenConfigApi: () => void;
   assetCount?: number;
 }
 
-export const Header: React.FC<HeaderProps> = ({ currentView, onNavigateStudio }) => {
+export const Header: React.FC<HeaderProps> = ({ currentView, onNavigateStudio, onOpenConfigApi }) => {
   const viewTitles: Record<string, string> = {
     dashboard: 'Workspace Overview',
-    studio: 'Text-to-3D Studio & Inspector',
-    gallery: 'Generated Asset Gallery',
+    studio: 'Text-to-3D Studio & Inspector (Mixar)',
+    gallery: 'Generated Asset Gallery (Cargo)',
   };
 
   return (
@@ -40,21 +41,22 @@ export const Header: React.FC<HeaderProps> = ({ currentView, onNavigateStudio })
 
       {/* Right Tools & Badges */}
       <div className="flex items-center gap-3">
-        {/* Demo Mode Badge */}
-        <div
-          title="PolyGen Procedural Core active. Generates real GLB/OBJ/STL geometry locally without external API tokens."
-          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/70 border border-emerald-500/40 text-emerald-300 text-xs font-medium cursor-help"
+        {/* Interactive Demo Mode Badge */}
+        <button
+          onClick={onOpenConfigApi}
+          title="Click to view or configure AI engines & API keys"
+          className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-xs font-medium cursor-pointer hover:bg-emerald-900/60 hover:border-emerald-400 transition-all shadow-sm"
         >
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
           <span className="hidden md:inline font-mono">DEMO MODE ACTIVE</span>
           <span className="md:hidden font-mono">DEMO</span>
-        </div>
+        </button>
 
         {/* New Generation CTA */}
         {currentView !== 'studio' && (
           <button
             onClick={onNavigateStudio}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 font-semibold text-xs tracking-wide shadow-md shadow-cyan-500/20 transition-all"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 font-semibold text-xs tracking-wide shadow-md shadow-cyan-500/20 transition-all cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">New Generation</span>

@@ -10,7 +10,13 @@ import { SettingsPanel } from './components/studio/SettingsPanel';
 import { JobProgressModal } from './components/studio/JobProgressModal';
 import { DashboardView } from './components/dashboard/DashboardView';
 import { AssetGalleryView } from './components/gallery/AssetGalleryView';
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import { 
+  CommandPaletteModal, 
+  ConfigApiModal, 
+  HelpModal, 
+  PlanModal 
+} from './components/modals/ActionModals';
+import { AlertCircle, RefreshCw, Minimize2 } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<'dashboard' | 'studio' | 'gallery'>('dashboard');
@@ -19,6 +25,15 @@ export const App: React.FC = () => {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [stats, setStats] = useState<StatsOverview | null>(null);
   const [backendError, setBackendError] = useState<string | null>(null);
+
+  // Zen Mode state (Fullscreen Mixar Viewport)
+  const [isZenMode, setIsZenMode] = useState<boolean>(false);
+
+  // Global Action Modals state
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
+  const [isConfigApiOpen, setIsConfigApiOpen] = useState<boolean>(false);
+  const [helpModalSection, setHelpModalSection] = useState<'guides' | 'faq' | 'support' | null>(null);
+  const [isPlanModalOpen, setIsPlanModalOpen] = useState<boolean>(false);
 
   // Live Three.js Geometry Telemetry
   const [liveStats, setLiveStats] = useState<{
@@ -57,6 +72,28 @@ export const App: React.FC = () => {
 
   // Active Job for modal tracking
   const [activeJob, setActiveJob] = useState<JobStatus | null>(null);
+
+  // Global Keyboard Shortcuts (Ctrl+K / Cmd+K and Escape)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen((prev) => !prev);
+      }
+      if (e.key === 'Escape') {
+        setIsCommandPaletteOpen(false);
+        setIsConfigApiOpen(false);
+        setHelpModalSection(null);
+        setIsPlanModalOpen(false);
+        if (isZenMode) {
+          setIsZenMode(false);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isZenMode]);
 
   // Fetch initial data
   const loadInitialData = useCallback(async () => {
@@ -139,19 +176,44 @@ export const App: React.FC = () => {
 
   return (
     <div className="flex h-screen w-screen bg-[#090a0f] text-slate-200 overflow-hidden font-sans">
-      {/* Sidebar */}
-      <Sidebar
-        currentView={currentView}
-        onSelectView={setCurrentView}
-        assetCount={assets.length}
-      />
+      {/* Sidebar (collapses in Zen Mode for distraction-free 3D work) */}
+      {!isZenMode && (
+        <Sidebar
+          currentView={currentView}
+          onSelectView={setCurrentView}
+          onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+          onOpenHelp={(sec) => setHelpModalSection(sec)}
+          onOpenPlan={() => setIsPlanModalOpen(true)}
+          onOpenConfigApi={() => setIsConfigApiOpen(true)}
+          assetCount={assets.length}
+        />
+      )}
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-        <Header
-          currentView={currentView}
-          onNavigateStudio={() => setCurrentView('studio')}
-        />
+        {/* Header (hidden in Zen Mode for full-bleed 3D viewport) */}
+        {!isZenMode && (
+          <Header
+            currentView={currentView}
+            onNavigateStudio={() => setCurrentView('studio')}
+            onOpenConfigApi={() => setIsConfigApiOpen(true)}
+            assetCount={assets.length}
+          />
+        )}
+
+        {/* Floating Exit Zen Mode Button if in Zen Mode */}
+        {isZenMode && (
+          <div className="absolute top-3 right-4 z-50">
+            <button
+              onClick={() => setIsZenMode(false)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-xl transition-all"
+              title="Exit Zen Mode (Esc)"
+            >
+              <Minimize2 className="w-3.5 h-3.5" />
+              <span>Exit Zen Mode</span>
+            </button>
+          </div>
+        )}
 
         {/* Backend Error Banner */}
         {backendError && (
@@ -192,29 +254,31 @@ export const App: React.FC = () => {
 
           {currentView === 'studio' && (
             <div className="flex flex-col lg:flex-row h-full w-full overflow-hidden">
-              {/* Left Column: Tripo-style Generation Controls */}
-              <div className="w-full lg:w-96 p-4 border-r border-slate-800/80 bg-slate-950/90 overflow-y-auto flex flex-col gap-4 shrink-0">
-                <PromptBox
-                  prompt={generationSettings.prompt}
-                  negativePrompt={generationSettings.negative_prompt || ''}
-                  style={generationSettings.style}
-                  onPromptChange={(val) =>
-                    setGenerationSettings({ ...generationSettings, prompt: val })
-                  }
-                  onNegativePromptChange={(val) =>
-                    setGenerationSettings({ ...generationSettings, negative_prompt: val })
-                  }
-                  onGenerate={handleGenerate}
-                  disabled={activeJob?.status === 'synthesizing' || activeJob?.status === 'meshing'}
-                />
+              {/* Left Column: Tripo-style Generation Controls (hidden in Zen Mode) */}
+              {!isZenMode && (
+                <div className="w-full lg:w-96 p-4 border-r border-slate-800/80 bg-slate-950/90 overflow-y-auto flex flex-col gap-4 shrink-0">
+                  <PromptBox
+                    prompt={generationSettings.prompt}
+                    negativePrompt={generationSettings.negative_prompt || ''}
+                    style={generationSettings.style}
+                    onPromptChange={(val) =>
+                      setGenerationSettings({ ...generationSettings, prompt: val })
+                    }
+                    onNegativePromptChange={(val) =>
+                      setGenerationSettings({ ...generationSettings, negative_prompt: val })
+                    }
+                    onGenerate={handleGenerate}
+                    disabled={activeJob?.status === 'synthesizing' || activeJob?.status === 'meshing'}
+                  />
 
-                <SettingsPanel
-                  settings={generationSettings}
-                  providers={providers}
-                  onChange={setGenerationSettings}
-                  disabled={activeJob?.status === 'synthesizing' || activeJob?.status === 'meshing'}
-                />
-              </div>
+                  <SettingsPanel
+                    settings={generationSettings}
+                    providers={providers}
+                    onChange={setGenerationSettings}
+                    disabled={activeJob?.status === 'synthesizing' || activeJob?.status === 'meshing'}
+                  />
+                </div>
+              )}
 
               {/* Center: Mixar 3D Studio Viewport */}
               <div className="flex-1 relative flex flex-col min-w-0 h-[50vh] lg:h-full bg-[#0c0e14]">
@@ -225,11 +289,13 @@ export const App: React.FC = () => {
                   options={viewerOptions}
                   onOptionsChange={setViewerOptions}
                   onStatsCalculated={setLiveStats}
+                  isZenMode={isZenMode}
+                  onToggleZenMode={() => setIsZenMode(!isZenMode)}
                   className="w-full h-full"
                 />
 
                 {/* Bottom Model Quick-Switch Strip */}
-                {assets.length > 0 && (
+                {assets.length > 0 && !isZenMode && (
                   <div className="absolute bottom-12 left-4 right-4 z-10 flex items-center gap-2 overflow-x-auto p-1.5 bg-slate-950/80 border border-slate-800/80 rounded-xl backdrop-blur-md">
                     <span className="text-[10px] font-bold text-slate-500 uppercase px-2 shrink-0">
                       Models:
@@ -251,13 +317,15 @@ export const App: React.FC = () => {
                 )}
               </div>
 
-              {/* Right Column: Model Inspector */}
-              <div className="w-full lg:w-80 p-4 border-l border-slate-800/80 bg-slate-950/90 overflow-y-auto shrink-0 flex flex-col gap-4">
-                <ModelInspector
-                  asset={activeAsset}
-                  liveStats={liveStats}
-                />
-              </div>
+              {/* Right Column: Model Inspector (hidden in Zen Mode) */}
+              {!isZenMode && (
+                <div className="w-full lg:w-80 p-4 border-l border-slate-800/80 bg-slate-950/90 overflow-y-auto shrink-0 flex flex-col gap-4">
+                  <ModelInspector
+                    asset={activeAsset}
+                    liveStats={liveStats}
+                  />
+                </div>
+              )}
             </div>
           )}
         </main>
@@ -275,6 +343,37 @@ export const App: React.FC = () => {
           setActiveJob(null);
         }}
         onClose={() => setActiveJob(null)}
+      />
+
+      {/* Global Interactive Modals */}
+      <CommandPaletteModal
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        onSelectAction={(view) => {
+          setCurrentView(view);
+          setIsCommandPaletteOpen(false);
+        }}
+        onSelectAsset={handleInspectAsset}
+        assets={assets}
+      />
+
+      <ConfigApiModal
+        isOpen={isConfigApiOpen}
+        onClose={() => setIsConfigApiOpen(false)}
+        providers={providers}
+      />
+
+      {helpModalSection && (
+        <HelpModal
+          isOpen={Boolean(helpModalSection)}
+          onClose={() => setHelpModalSection(null)}
+          section={helpModalSection}
+        />
+      )}
+
+      <PlanModal
+        isOpen={isPlanModalOpen}
+        onClose={() => setIsPlanModalOpen(false)}
       />
     </div>
   );

@@ -1,5 +1,37 @@
 [
   {
+    "id": "7ba164dd",
+    "title": "Futuristic Hovering Crystal (Scifi)",
+    "prompt": "futuristic hovering crystal sensor",
+    "negative_prompt": null,
+    "provider": "demo",
+    "style": "scifi",
+    "poly_count": 44,
+    "vertex_count": 36,
+    "file_size_bytes": 2488,
+    "formats": {
+      "glb": "/api/assets/7ba164dd/download/glb",
+      "obj": "/api/assets/7ba164dd/download/obj",
+      "stl": "/api/assets/7ba164dd/download/stl"
+    },
+    "thumbnail_url": null,
+    "tags": [
+      "scifi",
+      "procedural",
+      "demo-engine",
+      "budget-medium"
+    ],
+    "created_at": "2026-11-13 17:08:37.312307+00:00",
+    "is_demo": true,
+    "attributes": {
+      "symmetry": true,
+      "poly_budget": "medium",
+      "seed": null,
+      "engine": "PolyGen Procedural v1.0",
+      "is_demo": true
+    }
+  },
+  {
     "id": "6fea2d00",
     "title": "Bioluminescent Floating Crystalline (Scifi)",
     "prompt": "bioluminescent floating crystalline entity",
