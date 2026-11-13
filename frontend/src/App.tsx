@@ -4,14 +4,13 @@ import { api } from './api/client';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
 import { Canvas3D } from './components/viewer/Canvas3D';
-import { ViewerControls } from './components/viewer/ViewerControls';
 import { ModelInspector } from './components/viewer/ModelInspector';
 import { PromptBox } from './components/studio/PromptBox';
 import { SettingsPanel } from './components/studio/SettingsPanel';
 import { JobProgressModal } from './components/studio/JobProgressModal';
 import { DashboardView } from './components/dashboard/DashboardView';
 import { AssetGalleryView } from './components/gallery/AssetGalleryView';
-import { Box, AlertCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle, RefreshCw } from 'lucide-react';
 
 export const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<'dashboard' | 'studio' | 'gallery'>('dashboard');
@@ -110,7 +109,6 @@ export const App: React.FC = () => {
         setActiveJob(updated);
 
         if (updated.status === 'completed') {
-          // Refresh assets and stats
           const [updatedAssets, updatedStats] = await Promise.all([
             api.listAssets(),
             api.getStats(),
@@ -194,8 +192,8 @@ export const App: React.FC = () => {
 
           {currentView === 'studio' && (
             <div className="flex flex-col lg:flex-row h-full w-full overflow-hidden">
-              {/* Left Column: Generation Controls */}
-              <div className="w-full lg:w-96 p-4 border-r border-slate-800/80 bg-slate-950/60 overflow-y-auto flex flex-col gap-4 shrink-0">
+              {/* Left Column: Tripo-style Generation Controls */}
+              <div className="w-full lg:w-96 p-4 border-r border-slate-800/80 bg-slate-950/90 overflow-y-auto flex flex-col gap-4 shrink-0">
                 <PromptBox
                   prompt={generationSettings.prompt}
                   negativePrompt={generationSettings.negative_prompt || ''}
@@ -218,49 +216,32 @@ export const App: React.FC = () => {
                 />
               </div>
 
-              {/* Center: 3D Viewport Workspace */}
+              {/* Center: Mixar 3D Studio Viewport */}
               <div className="flex-1 relative flex flex-col min-w-0 h-[50vh] lg:h-full bg-[#0c0e14]">
-                {/* Floating Top Controls Toolbar */}
-                <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between pointer-events-none">
-                  <div className="pointer-events-auto">
-                    <ViewerControls
-                      options={viewerOptions}
-                      onChange={setViewerOptions}
-                    />
-                  </div>
-
-                  {activeAsset && (
-                    <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/80 border border-slate-800/80 text-xs backdrop-blur-md pointer-events-auto">
-                      <Box className="w-3.5 h-3.5 text-cyan-400" />
-                      <span className="font-medium text-white max-w-[200px] truncate">
-                        {activeAsset.title}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {/* 3D Canvas */}
                 <Canvas3D
                   modelUrl={activeAsset ? api.getDownloadUrl(activeAsset.id, 'glb') : null}
+                  assetTitle={activeAsset?.title}
+                  assetId={activeAsset?.id}
                   options={viewerOptions}
+                  onOptionsChange={setViewerOptions}
                   onStatsCalculated={setLiveStats}
                   className="w-full h-full"
                 />
 
                 {/* Bottom Model Quick-Switch Strip */}
                 {assets.length > 0 && (
-                  <div className="absolute bottom-4 left-4 right-4 z-10 flex items-center gap-2 overflow-x-auto p-2 bg-slate-900/80 border border-slate-800/80 rounded-xl backdrop-blur-md">
-                    <span className="text-[11px] font-medium text-slate-500 uppercase px-2 shrink-0">
+                  <div className="absolute bottom-12 left-4 right-4 z-10 flex items-center gap-2 overflow-x-auto p-1.5 bg-slate-950/80 border border-slate-800/80 rounded-xl backdrop-blur-md">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase px-2 shrink-0">
                       Models:
                     </span>
                     {assets.map((a) => (
                       <button
                         key={a.id}
                         onClick={() => setActiveAsset(a)}
-                        className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
                           activeAsset?.id === a.id
-                            ? 'bg-cyan-500 text-slate-950 font-semibold shadow-sm shadow-cyan-500/30'
-                            : 'bg-slate-800/60 hover:bg-slate-800 text-slate-300 border border-slate-700/50'
+                            ? 'bg-amber-400 text-slate-950 font-bold shadow-sm shadow-amber-500/30'
+                            : 'bg-slate-900 hover:bg-slate-850 text-slate-300 border border-slate-800'
                         }`}
                       >
                         {a.title}
@@ -271,7 +252,7 @@ export const App: React.FC = () => {
               </div>
 
               {/* Right Column: Model Inspector */}
-              <div className="w-full lg:w-80 p-4 border-l border-slate-800/80 bg-slate-950/60 overflow-y-auto shrink-0 flex flex-col gap-4">
+              <div className="w-full lg:w-80 p-4 border-l border-slate-800/80 bg-slate-950/90 overflow-y-auto shrink-0 flex flex-col gap-4">
                 <ModelInspector
                   asset={activeAsset}
                   liveStats={liveStats}

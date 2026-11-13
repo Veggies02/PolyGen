@@ -3,11 +3,30 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { ViewerOptions } from '../../types';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { 
+  Loader2, 
+  AlertCircle, 
+  Play, 
+  Pause, 
+  RotateCcw, 
+  Grid, 
+  Box, 
+  Sliders, 
+  MousePointer,
+  Move,
+  RotateCw,
+  Scale,
+  Ruler,
+  ChevronDown
+} from 'lucide-react';
+import { api } from '../../api/client';
 
 interface Canvas3DProps {
   modelUrl?: string | null;
+  assetTitle?: string;
+  assetId?: string;
   options: ViewerOptions;
+  onOptionsChange?: (options: ViewerOptions) => void;
   onStatsCalculated?: (stats: {
     polyCount: number;
     vertexCount: number;
@@ -19,11 +38,15 @@ interface Canvas3DProps {
 
 export const Canvas3D: React.FC<Canvas3DProps> = ({
   modelUrl,
+  assetTitle,
+  assetId,
   options,
+  onOptionsChange,
   onStatsCalculated,
   className = '',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const gizmoCanvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -34,6 +57,13 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
 
   const [loading, setLoading] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Mixar studio states
+  const [activeTab, setActiveTab] = useState<'modeling' | 'zen' | 'uv' | 'texturing'>('modeling');
+  const [activeTool, setActiveTool] = useState<'select' | 'move' | 'rotate' | 'scale' | 'transform' | 'measure'>('select');
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [currentFrame, setCurrentFrame] = useState<number>(1);
+  const [showDownloadMenu, setShowDownloadMenu] = useState<boolean>(false);
 
   // Initialize Three.js Scene
   useEffect(() => {
@@ -70,23 +100,19 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     controls.maxDistance = 30;
     controlsRef.current = controls;
 
-    // Grid
-    const grid = new THREE.GridHelper(10, 20, 0x00f0ff, 0x1f2638);
+    const grid = new THREE.GridHelper(16, 32, 0x00f0ff, 0x1f2638);
     grid.position.y = 0;
     scene.add(grid);
     gridHelperRef.current = grid;
 
-    // Lights
     const lightsGroup = new THREE.Group();
     scene.add(lightsGroup);
     lightsGroupRef.current = lightsGroup;
 
-    // Model Group
     const modelGroup = new THREE.Group();
     scene.add(modelGroup);
     modelGroupRef.current = modelGroup;
 
-    // Resize Observer
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const w = entry.contentRect.width;
@@ -100,7 +126,6 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     });
     resizeObserver.observe(container);
 
-    // Animation Loop
     let animationId: number;
     const animate = () => {
       animationId = requestAnimationFrame(animate);
@@ -110,6 +135,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       if (rendererRef.current && sceneRef.current && cameraRef.current) {
         rendererRef.current.render(sceneRef.current, cameraRef.current);
       }
+      drawOrientationGizmo();
     };
     animate();
 
@@ -123,7 +149,67 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     };
   }, []);
 
-  // Update Lighting Preset
+  const drawOrientationGizmo = () => {
+    const canvas = gizmoCanvasRef.current;
+    if (!canvas || !cameraRef.current) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const radius = 32;
+
+    const camera = cameraRef.current;
+    const rotMat = new THREE.Matrix4().extractRotation(camera.matrixWorldInverse);
+
+    const axes = [
+      { dir: new THREE.Vector3(1, 0, 0), color: '#ef4444', label: 'X' },
+      { dir: new THREE.Vector3(0, 1, 0), color: '#22c55e', label: 'Y' },
+      { dir: new THREE.Vector3(0, 0, 1), color: '#3b82f6', label: 'Z' },
+    ];
+
+    axes.forEach((axis) => {
+      const v = axis.dir.clone().applyMatrix4(rotMat);
+      const px = cx + v.x * radius;
+      const py = cy - v.y * radius;
+
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(px, py);
+      ctx.strokeStyle = axis.color;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(px, py, 6, 0, 2 * Math.PI);
+      ctx.fillStyle = axis.color;
+      ctx.fill();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 9px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(axis.label, px, py);
+    });
+  };
+
+  useEffect(() => {
+    let interval: any;
+    if (isPlaying) {
+      interval = setInterval(() => {
+        setCurrentFrame((prev) => {
+          const next = prev >= 250 ? 1 : prev + 1;
+          if (modelGroupRef.current) {
+            modelGroupRef.current.rotation.y = (next / 250) * Math.PI * 2;
+          }
+          return next;
+        });
+      }, 33);
+    }
+    return () => clearInterval(interval);
+  }, [isPlaying]);
+
   useEffect(() => {
     if (!lightsGroupRef.current) return;
     const group = lightsGroupRef.current;
@@ -161,7 +247,6 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       softDir.position.set(2, 4, 2);
       group.add(softDir);
     } else {
-      // Default Studio
       const keyLight = new THREE.DirectionalLight(0xffffff, 1.8);
       keyLight.position.set(5, 6, 4);
       group.add(keyLight);
@@ -176,7 +261,6 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     }
   }, [options.lightingPreset]);
 
-  // Update Background & Exposure & Controls
   useEffect(() => {
     if (sceneRef.current) {
       sceneRef.current.background = new THREE.Color(options.backgroundColor);
@@ -193,7 +277,14 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     }
   }, [options.backgroundColor, options.exposure, options.grid, options.autoRotate]);
 
-  // Load Model when modelUrl changes
+  const handleResetCamera = () => {
+    if (cameraRef.current && controlsRef.current) {
+      cameraRef.current.position.set(3.5, 2.8, 4.5);
+      controlsRef.current.target.set(0, 0.8, 0);
+      controlsRef.current.update();
+    }
+  };
+
   useEffect(() => {
     if (!modelGroupRef.current || !modelUrl) return;
     const group = modelGroupRef.current;
@@ -208,18 +299,14 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       (gltf) => {
         const object = gltf.scene;
 
-        // Compute Bounding Box
         const bbox = new THREE.Box3().setFromObject(object);
         const center = bbox.getCenter(new THREE.Vector3());
         const size = bbox.getSize(new THREE.Vector3());
 
-        // Center object
         object.position.x = -center.x;
         object.position.z = -center.z;
-        // Place base firmly on grid (y = 0)
         object.position.y = -bbox.min.y;
 
-        // Calculate stats
         let totalVertices = 0;
         let totalPolys = 0;
         const materialsSet = new Set<string>();
@@ -256,12 +343,10 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
 
         group.add(object);
 
-        // Adjust camera to fit model size nicely
         if (cameraRef.current && controlsRef.current) {
           const maxDim = Math.max(size.x, size.y, size.z, 1.0);
           const fov = cameraRef.current.fov * (Math.PI / 180);
-          const distance = Math.abs(maxDim / Math.sin(fov / 2)) * 0.9;
-          
+          const distance = Math.abs(maxDim / Math.sin(fov / 2)) * 0.95;
           cameraRef.current.position.set(distance * 0.9, distance * 0.7, distance * 1.1);
           controlsRef.current.target.set(0, size.y / 2, 0);
           controlsRef.current.update();
@@ -286,13 +371,12 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       undefined,
       (error) => {
         console.error('Failed to load 3D model:', error);
-        setLoadError('Failed to load GLB model. Check network connection or file validity.');
+        setLoadError('Failed to load GLB model. Check file path or generation status.');
         setLoading(false);
       }
     );
   }, [modelUrl]);
 
-  // Apply Shading Mode & Wireframe
   const applyShadingAndWireframe = useCallback(() => {
     if (!modelGroupRef.current) return;
 
@@ -318,7 +402,6 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
             wireframe: true,
           });
         } else {
-          // PBR / Original
           if (origMat) {
             mesh.material = origMat;
             if (Array.isArray(mesh.material)) {
@@ -341,24 +424,327 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   }, [applyShadingAndWireframe]);
 
   return (
-    <div className={`relative w-full h-full overflow-hidden select-none ${className}`}>
-      <div ref={containerRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
-
-      {/* Loading Overlay */}
-      {loading && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-20">
-          <Loader2 className="w-10 h-10 text-cyan-400 animate-spin mb-3" />
-          <p className="text-sm font-medium text-slate-300 tracking-wider uppercase">Loading 3D Model...</p>
+    <div className={`relative w-full h-full overflow-hidden select-none flex flex-col bg-[#0c0e14] ${className}`}>
+      {/* 1. TOP MIXAR STUDIO WORKSPACE HEADER STRIP */}
+      <div className="h-10 px-4 bg-slate-950/90 border-b border-slate-800/80 flex items-center justify-between z-20 shrink-0">
+        <div className="flex items-center gap-1.5 text-xs">
+          <button
+            onClick={() => setActiveTab('zen')}
+            className={`px-3 py-1 rounded-md transition-colors ${
+              activeTab === 'zen' ? 'text-white font-medium' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Zen Mode
+          </button>
+          <button
+            onClick={() => setActiveTab('modeling')}
+            className={`px-3.5 py-1 rounded-full text-xs font-semibold transition-all ${
+              activeTab === 'modeling'
+                ? 'bg-lime-500 text-slate-950 shadow-md shadow-lime-500/20'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Modeling
+          </button>
+          <button
+            onClick={() => setActiveTab('uv')}
+            className={`px-3 py-1 rounded-md transition-colors ${
+              activeTab === 'uv' ? 'text-white font-medium' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            UV Editing
+          </button>
+          <button
+            onClick={() => setActiveTab('texturing')}
+            className={`px-3 py-1 rounded-md transition-colors ${
+              activeTab === 'texturing' ? 'text-white font-medium' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Texturing
+          </button>
+          <span className="text-slate-600 px-1">+</span>
         </div>
-      )}
 
-      {/* Error Banner */}
-      {loadError && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-rose-950/80 border border-rose-500/40 text-rose-200 px-4 py-2 rounded-lg text-xs flex items-center gap-2 backdrop-blur-md z-30">
-          <AlertCircle className="w-4 h-4 text-rose-400" />
-          <span>{loadError}</span>
+        {/* Action strip with Asset Title */}
+        <div className="flex items-center gap-2 text-xs text-slate-400">
+          {assetTitle && (
+            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-xs font-medium text-slate-200">
+              <Box className="w-3 h-3 text-lime-400" />
+              <span>{assetTitle}</span>
+            </div>
+          )}
+
+          <div className="hidden sm:flex items-center gap-2 px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-[11px]">
+            <Box className="w-3.5 h-3.5 text-lime-400" />
+            <span className="text-slate-200 font-medium">Object Mode</span>
+            <ChevronDown className="w-3 h-3 text-slate-500" />
+          </div>
+
+          <div className="hidden md:flex items-center gap-3 text-[11px]">
+            <span className="hover:text-slate-200 cursor-pointer">View</span>
+            <span className="hover:text-slate-200 cursor-pointer">Select</span>
+            <span className="hover:text-slate-200 cursor-pointer">Add</span>
+            <span className="hover:text-slate-200 cursor-pointer">Object</span>
+          </div>
+
+          <div className="w-px h-4 bg-slate-800 mx-1 hidden sm:block" />
+
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-[11px]">
+            <span className="text-slate-200">Global</span>
+            <ChevronDown className="w-3 h-3 text-slate-500" />
+          </div>
+
+          <div className="relative">
+            <button
+              onClick={() => setShowDownloadMenu(!showDownloadMenu)}
+              className="flex items-center gap-1 px-2.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-200 hover:text-white transition-colors text-[11px]"
+            >
+              <span>Options</span>
+              <ChevronDown className="w-3 h-3 text-slate-500" />
+            </button>
+
+            {showDownloadMenu && assetId && (
+              <div className="absolute right-0 top-full mt-1 w-44 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-2 z-40 flex flex-col gap-1 text-xs text-slate-300">
+                <span className="text-[10px] uppercase font-bold text-slate-500 px-2 py-1">Export 3D Asset</span>
+                <a
+                  href={api.getDownloadUrl(assetId, 'glb')}
+                  download={`${assetId}.glb`}
+                  className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-200 hover:text-cyan-300"
+                >
+                  <span className="font-semibold">GLB</span>
+                  <span className="text-[10px] text-slate-500">glTF Binary</span>
+                </a>
+                <a
+                  href={api.getDownloadUrl(assetId, 'obj')}
+                  download={`${assetId}.obj`}
+                  className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-200 hover:text-slate-100"
+                >
+                  <span className="font-semibold">OBJ</span>
+                  <span className="text-[10px] text-slate-500">Wavefront</span>
+                </a>
+                <a
+                  href={api.getDownloadUrl(assetId, 'stl')}
+                  download={`${assetId}.stl`}
+                  className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-200 hover:text-slate-100"
+                >
+                  <span className="font-semibold">STL</span>
+                  <span className="text-[10px] text-slate-500">3D Printing</span>
+                </a>
+              </div>
+            )}
+          </div>
         </div>
-      )}
+      </div>
+
+      {/* 2. MAIN 3D VIEWPORT CONTAINER */}
+      <div className="flex-1 relative w-full h-full min-h-0 overflow-hidden">
+        <div ref={containerRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
+
+        {/* LEFT FLOATING MIXAR TOOLBAR */}
+        <div className="absolute left-4 top-4 z-20 flex flex-col gap-1 p-1 bg-slate-950/80 backdrop-blur-md border border-slate-800/80 rounded-xl shadow-2xl text-slate-400">
+          <button
+            onClick={() => setActiveTool('select')}
+            title="Box Select"
+            className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
+              activeTool === 'select'
+                ? 'bg-lime-500 text-slate-950 font-bold shadow-md shadow-lime-500/20'
+                : 'hover:bg-slate-800 hover:text-slate-200'
+            }`}
+          >
+            <MousePointer className="w-4 h-4" />
+            <span className="text-[8px]">Select</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTool('move')}
+            title="Move Tool"
+            className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
+              activeTool === 'move'
+                ? 'bg-lime-500 text-slate-950 font-bold'
+                : 'hover:bg-slate-800 hover:text-slate-200'
+            }`}
+          >
+            <Move className="w-4 h-4" />
+            <span className="text-[8px]">Move</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTool('rotate')}
+            title="Rotate Tool"
+            className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
+              activeTool === 'rotate'
+                ? 'bg-lime-500 text-slate-950 font-bold'
+                : 'hover:bg-slate-800 hover:text-slate-200'
+            }`}
+          >
+            <RotateCw className="w-4 h-4" />
+            <span className="text-[8px]">Rotate</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTool('scale')}
+            title="Scale Tool"
+            className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
+              activeTool === 'scale'
+                ? 'bg-lime-500 text-slate-950 font-bold'
+                : 'hover:bg-slate-800 hover:text-slate-200'
+            }`}
+          >
+            <Scale className="w-4 h-4" />
+            <span className="text-[8px]">Scale</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTool('transform')}
+            title="Universal Transform"
+            className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
+              activeTool === 'transform'
+                ? 'bg-lime-500 text-slate-950 font-bold'
+                : 'hover:bg-slate-800 hover:text-slate-200'
+            }`}
+          >
+            <Sliders className="w-4 h-4" />
+            <span className="text-[8px]">Transform</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTool('measure')}
+            title="Measure Topology"
+            className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
+              activeTool === 'measure'
+                ? 'bg-lime-500 text-slate-950 font-bold'
+                : 'hover:bg-slate-800 hover:text-slate-200'
+            }`}
+          >
+            <Ruler className="w-4 h-4" />
+            <span className="text-[8px]">Measure</span>
+          </button>
+        </div>
+
+        {/* TOP-RIGHT 3D ORIENTATION GIZMO (X/Y/Z) */}
+        <div className="absolute right-4 top-4 z-20 flex flex-col items-center gap-2">
+          <div className="relative w-20 h-20 bg-slate-950/70 border border-slate-800/80 rounded-2xl backdrop-blur-md p-1 shadow-2xl flex items-center justify-center">
+            <canvas ref={gizmoCanvasRef} width={76} height={76} className="pointer-events-none" />
+          </div>
+          <button
+            onClick={handleResetCamera}
+            title="Align / Reset View"
+            className="px-2.5 py-1 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-800 text-[10px] text-slate-400 hover:text-white transition-colors"
+          >
+            Reset Camera
+          </button>
+        </div>
+
+        {/* FLOATING BOTTOM TRIPO/MIXAR PILL UTILITY BAR */}
+        <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 p-1.5 bg-slate-950/90 border border-slate-800/90 rounded-2xl shadow-2xl backdrop-blur-md text-xs text-slate-300">
+          <button
+            onClick={() => onOptionsChange?.({ ...options, wireframe: !options.wireframe })}
+            className={`px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all ${
+              options.wireframe
+                ? 'bg-cyan-950/80 border-cyan-500/60 text-cyan-300'
+                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Box className="w-3.5 h-3.5" />
+            <span>Wireframe</span>
+          </button>
+
+          <button
+            onClick={() => onOptionsChange?.({ ...options, grid: !options.grid })}
+            className={`px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all ${
+              options.grid
+                ? 'bg-cyan-950/80 border-cyan-500/60 text-cyan-300'
+                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Grid className="w-3.5 h-3.5" />
+            <span>Grid</span>
+          </button>
+
+          <button
+            onClick={() => onOptionsChange?.({ ...options, autoRotate: !options.autoRotate })}
+            className={`px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all ${
+              options.autoRotate
+                ? 'bg-cyan-950/80 border-cyan-500/60 text-cyan-300'
+                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <RotateCw className={`w-3.5 h-3.5 ${options.autoRotate ? 'animate-spin' : ''}`} />
+            <span>360° Turntable</span>
+          </button>
+
+          <select
+            value={options.shadingMode}
+            onChange={(e) => onOptionsChange?.({ ...options, shadingMode: e.target.value as any })}
+            className="bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none"
+          >
+            <option value="pbr">PBR Shaded</option>
+            <option value="clay">Clay Studio</option>
+            <option value="normals">Normal Vectors</option>
+            <option value="wireframe">Cyber Mesh</option>
+          </select>
+        </div>
+
+        {/* Loading Overlay */}
+        {loading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-30">
+            <Loader2 className="w-10 h-10 text-lime-400 animate-spin mb-3" />
+            <p className="text-xs font-semibold text-slate-200 tracking-wider uppercase">Loading 3D Viewport Geometry...</p>
+          </div>
+        )}
+
+        {/* Error Banner */}
+        {loadError && (
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-rose-950/80 border border-rose-500/40 text-rose-200 px-4 py-2 rounded-lg text-xs flex items-center gap-2 backdrop-blur-md z-30">
+            <AlertCircle className="w-4 h-4 text-rose-400" />
+            <span>{loadError}</span>
+          </div>
+        )}
+      </div>
+
+      {/* 3. BOTTOM MIXAR TIMELINE / SCRUBBER BAR */}
+      <div className="h-10 px-4 bg-slate-950 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400 z-20 shrink-0">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsPlaying(!isPlaying)}
+            className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 transition-colors"
+            title={isPlaying ? 'Pause' : 'Play animation turntable'}
+          >
+            {isPlaying ? <Pause className="w-3.5 h-3.5 text-lime-400" /> : <Play className="w-3.5 h-3.5 text-lime-400 fill-lime-400" />}
+          </button>
+          <button
+            onClick={() => setCurrentFrame(1)}
+            className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+            title="Reset frame"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div className="flex-1 max-w-xl mx-4 flex items-center gap-3">
+          <span className="font-mono text-[11px] text-lime-400 font-bold w-7 text-right">{currentFrame}</span>
+          <input
+            type="range"
+            min={1}
+            max={250}
+            value={currentFrame}
+            onChange={(e) => {
+              const val = Number(e.target.value);
+              setCurrentFrame(val);
+              if (modelGroupRef.current) {
+                modelGroupRef.current.rotation.y = (val / 250) * Math.PI * 2;
+              }
+            }}
+            className="w-full accent-lime-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+          />
+          <span className="font-mono text-[11px] text-slate-500">250</span>
+        </div>
+
+        <div className="flex items-center gap-3 text-[11px] font-mono">
+          <span className="text-slate-500">Start: <span className="text-slate-300">1</span></span>
+          <span className="text-slate-500">End: <span className="text-slate-300">250</span></span>
+        </div>
+      </div>
     </div>
   );
 };
