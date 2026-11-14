@@ -14,8 +14,8 @@ import {
 } from 'lucide-react';
 
 interface SidebarProps {
-  currentView: 'dashboard' | 'studio' | 'gallery';
-  onSelectView: (view: 'dashboard' | 'studio' | 'gallery') => void;
+  currentView: 'dashboard' | 'studio' | 'gallery' | 'promptlab';
+  onSelectView: (view: 'dashboard' | 'studio' | 'gallery' | 'promptlab') => void;
   onOpenCommandPalette: () => void;
   onOpenHelp: (section: 'guides' | 'faq' | 'support') => void;
   onOpenPlan: () => void;
@@ -125,11 +125,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
 
           <button
-            onClick={() => onSelectView('studio')}
-            className="flex items-center gap-2.5 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 cursor-pointer rounded-lg hover:bg-slate-900/40 text-left transition-colors"
+            onClick={() => onSelectView('promptlab')}
+            className={`flex items-center justify-between px-3 py-1.5 text-xs rounded-xl cursor-pointer transition-colors ${
+              currentView === 'promptlab'
+                ? 'bg-blue-950/60 border border-blue-500/50 text-white font-semibold shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
+            }`}
           >
-            <div className="w-2 h-2 rounded-full bg-blue-400" />
-            <span>PromptLab</span>
+            <div className="flex items-center gap-2.5">
+              <div className="w-2 h-2 rounded-full bg-blue-400" />
+              <span>PromptLab</span>
+            </div>
+            <span className="text-[9px] px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 font-mono">
+              Matrix
+            </span>
           </button>
 
           <button

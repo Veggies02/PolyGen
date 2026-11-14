@@ -10,6 +10,7 @@ import { SettingsPanel } from './components/studio/SettingsPanel';
 import { JobProgressModal } from './components/studio/JobProgressModal';
 import { DashboardView } from './components/dashboard/DashboardView';
 import { AssetGalleryView } from './components/gallery/AssetGalleryView';
+import { PromptLabView } from './components/studio/PromptLabView';
 import { 
   CommandPaletteModal, 
   ConfigApiModal, 
@@ -19,7 +20,7 @@ import {
 import { AlertCircle, RefreshCw, Minimize2 } from 'lucide-react';
 
 export const App: React.FC = () => {
-  const [currentView, setCurrentView] = useState<'dashboard' | 'studio' | 'gallery'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'studio' | 'gallery' | 'promptlab'>('dashboard');
   const [assets, setAssets] = useState<Asset[]>([]);
   const [activeAsset, setActiveAsset] = useState<Asset | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
@@ -249,6 +250,20 @@ export const App: React.FC = () => {
             <AssetGalleryView
               assets={assets}
               onInspectAsset={handleInspectAsset}
+            />
+          )}
+
+          {currentView === 'promptlab' && (
+            <PromptLabView
+              onSelectPrompt={(promptText, style, polyBudget) => {
+                setGenerationSettings((prev) => ({
+                  ...prev,
+                  prompt: promptText,
+                  style: style || prev.style,
+                  poly_budget: polyBudget || prev.poly_budget,
+                }));
+              }}
+              onNavigateStudio={() => setCurrentView('studio')}
             />
           )}
 

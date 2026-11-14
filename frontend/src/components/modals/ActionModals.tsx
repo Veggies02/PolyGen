@@ -18,7 +18,7 @@ import type { ProviderInfo, Asset } from '../../types';
 interface CommandPaletteProps {
   isOpen: boolean;
   onClose: () => void;
-  onSelectAction: (view: 'dashboard' | 'studio' | 'gallery') => void;
+  onSelectAction: (view: 'dashboard' | 'studio' | 'gallery' | 'promptlab') => void;
   onSelectAsset: (asset: Asset) => void;
   assets: Asset[];
 }
@@ -89,6 +89,17 @@ export const CommandPaletteModal: React.FC<CommandPaletteProps> = ({
               <span>Open Workspace Insights Dashboard</span>
             </div>
             <span className="text-[10px] text-slate-500 font-mono">Insights</span>
+          </button>
+
+          <button
+            onClick={() => { onSelectAction('promptlab'); onClose(); }}
+            className="flex items-center justify-between px-3 py-2 rounded-xl hover:bg-slate-900 text-slate-300 hover:text-white transition-colors text-left"
+          >
+            <div className="flex items-center gap-2">
+              <Box className="w-4 h-4 text-blue-400" />
+              <span>Explore PromptLab 3D Matrix & Recipes</span>
+            </div>
+            <span className="text-[10px] text-slate-500 font-mono">PromptLab</span>
           </button>
 
           {filteredAssets.length > 0 && (

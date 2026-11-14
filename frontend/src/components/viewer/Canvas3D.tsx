@@ -22,7 +22,9 @@ import {
   Maximize2,
   Plus,
   Camera,
-  Archive
+  Archive,
+  UploadCloud,
+  Video
 } from 'lucide-react';
 import { api } from '../../api/client';
 
@@ -83,6 +85,14 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   const [currentFrame, setCurrentFrame] = useState<number>(1);
   const [showDimensions, setShowDimensions] = useState<boolean>(false);
   const [liveBounds, setLiveBounds] = useState<{ x: number; y: number; z: number }>({ x: 1, y: 1, z: 1 });
+
+  // Local File Import & Video Recording State
+  const [importedModelUrl, setImportedModelUrl] = useState<string | null>(null);
+  const [importedName, setImportedName] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState<boolean>(false);
+  const [recordProgress, setRecordProgress] = useState<number>(0);
+  const [isDragOver, setIsDragOver] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Initialize Three.js Scene
   useEffect(() => {
@@ -398,9 +408,80 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     rendererRef.current.render(sceneRef.current, cameraRef.current);
     const dataUrl = rendererRef.current.domElement.toDataURL('image/png');
     const link = document.createElement('a');
-    link.download = `PolyGen-Render-${(assetTitle || 'Asset').replace(/\s+/g, '_')}-${Date.now()}.png`;
+    link.download = `PolyGen-Render-${(importedName || assetTitle || 'Asset').replace(/\s+/g, '_')}-${Date.now()}.png`;
     link.href = dataUrl;
     link.click();
+  };
+
+  const handleFileUpload = (file: File) => {
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (ext !== 'glb' && ext !== 'gltf') {
+      alert('Please upload a valid .glb or .gltf 3D file.');
+      return;
+    }
+    const blobUrl = URL.createObjectURL(file);
+    setImportedModelUrl(blobUrl);
+    setImportedName(file.name.replace(/\.[^/.]+$/, ''));
+  };
+
+  const handleRecordVideo = () => {
+    if (!rendererRef.current || isRecording) return;
+    const canvas = rendererRef.current.domElement;
+    
+    // Capture 30fps canvas stream
+    const stream = canvas.captureStream ? canvas.captureStream(30) : null;
+    if (!stream) {
+      alert('Canvas captureStream is not supported in this browser.');
+      return;
+    }
+
+    let recorder: MediaRecorder;
+    try {
+      recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' });
+    } catch {
+      try {
+        recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+      } catch (e) {
+        alert('MediaRecorder for WebM is not supported in this browser.');
+        return;
+      }
+    }
+
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) chunks.push(e.data);
+    };
+
+    recorder.onstop = () => {
+      const blob = new Blob(chunks, { type: 'video/webm' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `PolyGen-Turntable-${(importedName || assetTitle || 'Asset').replace(/\s+/g, '_')}.webm`;
+      a.click();
+      setIsRecording(false);
+      setRecordProgress(0);
+    };
+
+    setIsRecording(true);
+    setRecordProgress(0);
+    recorder.start();
+
+    // Rotate 360 degrees smoothly over 4 seconds (120 frames at 30 fps)
+    let frame = 0;
+    const totalFrames = 120;
+    const initialRot = modelGroupRef.current ? modelGroupRef.current.rotation.y : 0;
+    const interval = setInterval(() => {
+      frame++;
+      setRecordProgress(Math.round((frame / totalFrames) * 100));
+      if (modelGroupRef.current) {
+        modelGroupRef.current.rotation.y = initialRot + (frame / totalFrames) * Math.PI * 2;
+      }
+      if (frame >= totalFrames) {
+        clearInterval(interval);
+        recorder.stop();
+      }
+    }, 1000 / 30);
   };
 
   const handleResetCamera = () => {
@@ -411,9 +492,16 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     }
   };
 
+  // Reset imported model if a library model is clicked
+  useEffect(() => {
+    setImportedModelUrl(null);
+    setImportedName(null);
+  }, [modelUrl]);
+
   // Load Model
   useEffect(() => {
-    if (!modelGroupRef.current || !modelUrl) return;
+    const effectiveUrl = importedModelUrl || modelUrl;
+    if (!modelGroupRef.current || !effectiveUrl) return;
     const group = modelGroupRef.current;
     group.clear();
 
@@ -422,7 +510,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
 
     const loader = new GLTFLoader();
     loader.load(
-      modelUrl,
+      effectiveUrl,
       (gltf) => {
         const object = gltf.scene;
 
@@ -508,7 +596,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
         setLoading(false);
       }
     );
-  }, [modelUrl]);
+  }, [modelUrl, importedModelUrl]);
 
   // Apply Shading Mode & Tab Mode
   const applyShadingAndWireframe = useCallback(() => {
@@ -653,12 +741,31 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
 
         {/* Action strip with Object Mode, Add, Global, Options */}
         <div className="flex items-center gap-2 text-xs text-slate-400">
-          {assetTitle && (
+          {(importedName || assetTitle) && (
             <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-xs font-medium text-slate-200">
-              <Box className="w-3 h-3 text-lime-400" />
-              <span>{assetTitle}</span>
+              <Box className={`w-3 h-3 ${importedName ? 'text-indigo-400' : 'text-lime-400'}`} />
+              <span>{importedName ? `Imported: ${importedName}` : assetTitle}</span>
             </div>
           )}
+
+          {/* Import Local 3D Model Button */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-1 px-2.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[11px] text-slate-200 hover:text-indigo-300 hover:border-indigo-500/40 transition-colors"
+            title="Import Local 3D Model (.GLB or .GLTF)"
+          >
+            <UploadCloud className="w-3 h-3 text-indigo-400" />
+            <span>Import</span>
+          </button>
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept=".glb,.gltf"
+            onChange={(e) => {
+              if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
+            }}
+            className="hidden"
+          />
 
           {/* Object Mode Dropdown */}
           <div className="relative">
@@ -805,12 +912,56 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
             <Camera className="w-3.5 h-3.5 text-amber-400" />
             <span className="hidden sm:inline">Render PNG</span>
           </button>
+
+          {/* Record 360 Turntable Video */}
+          <button
+            onClick={handleRecordVideo}
+            disabled={isRecording}
+            className={`flex items-center gap-1 px-2.5 py-0.5 rounded border transition-all text-[11px] ${
+              isRecording
+                ? 'border-rose-500 text-rose-300 bg-rose-950/60 shadow-md shadow-rose-950/50'
+                : 'bg-slate-900 border-slate-800 text-slate-200 hover:text-rose-400 hover:border-rose-500/40'
+            }`}
+            title="Record 360° Turntable Video (.WebM)"
+          >
+            {isRecording ? (
+              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping inline-block" />
+            ) : (
+              <Video className="w-3.5 h-3.5 text-rose-400" />
+            )}
+            <span className="hidden sm:inline">
+              {isRecording ? `Recording ${recordProgress}%` : '360° Video'}
+            </span>
+          </button>
         </div>
       </div>
 
-      {/* 2. MAIN 3D VIEWPORT CONTAINER */}
-      <div className="flex-1 relative w-full h-full min-h-0 overflow-hidden">
+      {/* 2. MAIN 3D VIEWPORT CONTAINER (With Drag & Drop Support) */}
+      <div 
+        className="flex-1 relative w-full h-full min-h-0 overflow-hidden"
+        onDragOver={(e) => {
+          e.preventDefault();
+          setIsDragOver(true);
+        }}
+        onDragLeave={() => setIsDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setIsDragOver(false);
+          if (e.dataTransfer.files?.[0]) {
+            handleFileUpload(e.dataTransfer.files[0]);
+          }
+        }}
+      >
         <div ref={containerRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
+
+        {/* Drag & Drop Visual Overlay */}
+        {isDragOver && (
+          <div className="absolute inset-4 z-40 rounded-2xl border-2 border-dashed border-indigo-400 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center gap-3 animate-fadeIn">
+            <UploadCloud className="w-12 h-12 text-indigo-400 animate-bounce" />
+            <span className="text-base font-bold text-white">Drop your .GLB or .GLTF 3D model here</span>
+            <span className="text-xs text-slate-400">Instantly inspects topology, geometry bounds, and applies PBR shaders</span>
+          </div>
+        )}
 
         {/* LEFT FLOATING MIXAR TOOLBAR */}
         <div className="absolute left-4 top-4 z-20 flex flex-col gap-1 p-1 bg-slate-950/85 backdrop-blur-md border border-slate-800/80 rounded-xl shadow-2xl text-slate-400">

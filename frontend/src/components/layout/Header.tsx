@@ -13,6 +13,7 @@ export const Header: React.FC<HeaderProps> = ({ currentView, onNavigateStudio, o
     dashboard: 'Workspace Overview',
     studio: 'Text-to-3D Studio & Inspector (Mixar)',
     gallery: 'Generated Asset Gallery (Cargo)',
+    promptlab: 'PromptLab 3D Matrix & Recipe Hub',
   };
 
   return (
