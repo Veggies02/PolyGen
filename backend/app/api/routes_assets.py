@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from typing import List, Optional
 from ..models.schemas import AssetMetadata
@@ -37,4 +37,21 @@ async def download_asset(asset_id: str, fmt: str):
         path=file_path,
         media_type=media_types.get(fmt, "application/octet-stream"),
         filename=f"{asset_id}.{fmt}"
+    )
+
+@router.get("/{asset_id}/bundle")
+async def download_bundle(asset_id: str):
+    """Exports all model formats (.glb, .obj, .stl) + manifest.json packed into a ZIP bundle."""
+    zip_bytes = asset_storage.create_bundle_zip(asset_id)
+    if not zip_bytes:
+        raise HTTPException(status_code=404, detail="Unable to create ZIP bundle for asset")
+
+    asset = asset_storage.get_asset(asset_id)
+    safe_title = (asset.title.replace(" ", "_") if asset else asset_id)
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="PolyGen_{safe_title}_{asset_id}.zip"'
+        }
     )

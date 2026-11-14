@@ -20,7 +20,9 @@ import {
   ChevronDown, 
   Minimize2, 
   Maximize2,
-  Plus
+  Plus,
+  Camera,
+  Archive
 } from 'lucide-react';
 import { api } from '../../api/client';
 
@@ -325,48 +327,51 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     const group = lightsGroupRef.current;
     group.clear();
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.4);
-    group.add(ambient);
-
     if (options.lightingPreset === 'cyberpunk') {
-      const cyanKey = new THREE.DirectionalLight(0x00ffff, 2.0);
-      cyanKey.position.set(4, 5, 3);
+      const ambient = new THREE.AmbientLight(0x0f172a, 0.8);
+      group.add(ambient);
+      const cyanKey = new THREE.DirectionalLight(0x00f0ff, 2.8);
+      cyanKey.position.set(5, 5, 4);
       group.add(cyanKey);
-
-      const magentaRim = new THREE.DirectionalLight(0xff007f, 2.5);
-      magentaRim.position.set(-4, 3, -4);
+      const magentaRim = new THREE.DirectionalLight(0xec4899, 2.5);
+      magentaRim.position.set(-5, 3, -4);
       group.add(magentaRim);
-
-      const blueFill = new THREE.PointLight(0x3b82f6, 1.5, 10);
-      blueFill.position.set(0, -1, 3);
-      group.add(blueFill);
-    } else if (options.lightingPreset === 'dramatic') {
-      const spot = new THREE.SpotLight(0xffffff, 3.5, 20, Math.PI / 4, 0.4);
-      spot.position.set(3, 7, 3);
-      spot.castShadow = true;
-      group.add(spot);
-
-      const rim = new THREE.DirectionalLight(0x60a5fa, 0.8);
-      rim.position.set(-3, 2, -3);
-      group.add(rim);
-    } else if (options.lightingPreset === 'soft') {
-      const hemi = new THREE.HemisphereLight(0xffffff, 0x1e293b, 1.2);
-      group.add(hemi);
-
-      const softDir = new THREE.DirectionalLight(0xffffff, 0.8);
-      softDir.position.set(2, 4, 2);
-      group.add(softDir);
+      const purpleFill = new THREE.PointLight(0x8b5cf6, 1.8, 12);
+      purpleFill.position.set(0, -1, 3);
+      group.add(purpleFill);
+    } else if (options.lightingPreset === 'sunset') {
+      const ambient = new THREE.AmbientLight(0x451a03, 0.7);
+      group.add(ambient);
+      const amberKey = new THREE.DirectionalLight(0xfbbf24, 3.2);
+      amberKey.position.set(6, 4, 3);
+      group.add(amberKey);
+      const orangeFill = new THREE.DirectionalLight(0xf97316, 1.5);
+      orangeFill.position.set(-4, 2, -3);
+      group.add(orangeFill);
+      const skyRim = new THREE.DirectionalLight(0x38bdf8, 0.8);
+      skyRim.position.set(0, 5, -5);
+      group.add(skyRim);
+    } else if (options.lightingPreset === 'space') {
+      const ambient = new THREE.AmbientLight(0x020617, 0.2);
+      group.add(ambient);
+      const starkDir = new THREE.DirectionalLight(0xf8fafc, 3.8);
+      starkDir.position.set(7, 8, 5);
+      group.add(starkDir);
+      const blueSpec = new THREE.DirectionalLight(0x38bdf8, 1.0);
+      blueSpec.position.set(-6, 2, -4);
+      group.add(blueSpec);
     } else {
-      const keyLight = new THREE.DirectionalLight(0xffffff, 1.8);
-      keyLight.position.set(5, 6, 4);
+      // Default Studio 3-Point
+      const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+      group.add(ambient);
+      const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
+      keyLight.position.set(5, 7, 5);
       group.add(keyLight);
-
-      const fillLight = new THREE.DirectionalLight(0x94a3b8, 1.0);
-      fillLight.position.set(-4, 3, 2);
+      const fillLight = new THREE.DirectionalLight(0x94a3b8, 1.2);
+      fillLight.position.set(-5, 3, 3);
       group.add(fillLight);
-
       const rimLight = new THREE.DirectionalLight(0x38bdf8, 1.2);
-      rimLight.position.set(0, 4, -5);
+      rimLight.position.set(0, 5, -5);
       group.add(rimLight);
     }
   }, [options.lightingPreset]);
@@ -387,6 +392,16 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       controlsRef.current.autoRotateSpeed = 2.0;
     }
   }, [options.backgroundColor, options.exposure, options.grid, options.autoRotate]);
+
+  const handleCaptureSnapshot = () => {
+    if (!rendererRef.current || !sceneRef.current || !cameraRef.current) return;
+    rendererRef.current.render(sceneRef.current, cameraRef.current);
+    const dataUrl = rendererRef.current.domElement.toDataURL('image/png');
+    const link = document.createElement('a');
+    link.download = `PolyGen-Render-${(assetTitle || 'Asset').replace(/\s+/g, '_')}-${Date.now()}.png`;
+    link.href = dataUrl;
+    link.click();
+  };
 
   const handleResetCamera = () => {
     if (cameraRef.current && controlsRef.current) {
@@ -530,6 +545,24 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           return;
         }
 
+        if (options.materials && options.materials.preset !== 'default') {
+          const mat = options.materials;
+          const physicalMat = new THREE.MeshPhysicalMaterial({
+            color: new THREE.Color(mat.color),
+            metalness: mat.metalness,
+            roughness: mat.roughness,
+            clearcoat: mat.clearcoat,
+            clearcoatRoughness: 0.1,
+            wireframe: options.wireframe,
+          });
+          if (mat.emissiveIntensity > 0) {
+            physicalMat.emissive = new THREE.Color(mat.emissiveColor || '#000000');
+            physicalMat.emissiveIntensity = mat.emissiveIntensity;
+          }
+          mesh.material = physicalMat;
+          return;
+        }
+
         if (options.shadingMode === 'clay') {
           mesh.material = new THREE.MeshStandardMaterial({
             color: 0xc4c9d4,
@@ -562,7 +595,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
         }
       }
     });
-  }, [options.shadingMode, options.wireframe, activeTab]);
+  }, [options.shadingMode, options.wireframe, activeTab, options.materials]);
 
   useEffect(() => {
     applyShadingAndWireframe();
@@ -747,9 +780,31 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
                   <span className="font-semibold">STL</span>
                   <span className="text-[10px] text-slate-500">3D Printing</span>
                 </a>
+                <div className="w-full h-px bg-slate-800 my-0.5" />
+                <a
+                  href={api.getBundleUrl(assetId)}
+                  download={`PolyGen_${assetId}_bundle.zip`}
+                  className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 hover:bg-amber-500/25 transition-colors font-medium"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Archive className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Bundle (.ZIP)</span>
+                  </div>
+                  <span className="text-[9px] text-amber-400 font-mono">ALL</span>
+                </a>
               </div>
             )}
           </div>
+
+          {/* Viewport 4K Snapshot Button */}
+          <button
+            onClick={handleCaptureSnapshot}
+            className="flex items-center gap-1 px-2.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-200 hover:text-amber-300 hover:border-amber-500/40 transition-colors text-[11px]"
+            title="Capture Viewport Screenshot (.PNG)"
+          >
+            <Camera className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline">Render PNG</span>
+          </button>
         </div>
       </div>
 

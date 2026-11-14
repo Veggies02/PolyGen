@@ -40,6 +40,10 @@ export const api = {
     return `${API_BASE}/assets/${assetId}/download/${format}`;
   },
 
+  getBundleUrl(assetId: string) {
+    return `${API_BASE}/assets/${assetId}/bundle`;
+  },
+
   async generate(settings: GenerationSettings): Promise<JobStatus> {
     const res = await fetch(`${API_BASE}/generate`, {
       method: 'POST',

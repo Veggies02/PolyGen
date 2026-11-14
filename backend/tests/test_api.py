@@ -58,6 +58,14 @@ async def test_list_and_download_assets():
         assert stl_res.status_code == 200
         assert len(stl_res.content) > 84
 
+        # Download All-in-One ZIP Bundle
+        bundle_res = await client.get(f"/api/assets/{sample_id}/bundle")
+        assert bundle_res.status_code == 200
+        assert bundle_res.headers["content-type"] == "application/zip"
+        assert len(bundle_res.content) > 200
+        # Check ZIP magic header (PK\x03\x04)
+        assert bundle_res.content[:4] == b"PK\x03\x04"
+
 @pytest.mark.asyncio
 async def test_enhance_prompt():
     transport = ASGITransport(app=app)

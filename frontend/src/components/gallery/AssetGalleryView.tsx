@@ -13,7 +13,8 @@ import {
   X, 
   ArrowRight, 
   Maximize2, 
-  Grid
+  Grid,
+  Archive
 } from 'lucide-react';
 
 interface AssetGalleryViewProps {
@@ -329,7 +330,7 @@ export const AssetGalleryView: React.FC<AssetGalleryViewProps> = ({ assets, onIn
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-2 my-4">
+            <div className="grid grid-cols-3 gap-2 my-3">
               <a
                 href={api.getDownloadUrl(selectedAsset.id, 'glb')}
                 download={`${selectedAsset.id}.glb`}
@@ -352,6 +353,15 @@ export const AssetGalleryView: React.FC<AssetGalleryViewProps> = ({ assets, onIn
                 STL (3D Print)
               </a>
             </div>
+
+            <a
+              href={api.getBundleUrl(selectedAsset.id)}
+              download={`PolyGen_${selectedAsset.id}_bundle.zip`}
+              className="w-full py-2.5 mb-4 rounded-xl bg-gradient-to-r from-amber-500/20 via-amber-400/10 to-yellow-500/20 hover:from-amber-500/30 hover:to-yellow-500/30 border border-amber-500/40 text-amber-300 font-semibold flex items-center justify-center gap-2 text-xs transition-all shadow-sm"
+            >
+              <Archive className="w-3.5 h-3.5 text-amber-400" />
+              <span>Download Complete Asset Bundle (.ZIP)</span>
+            </a>
 
             <button
               onClick={() => {

@@ -1,5 +1,7 @@
 import json
 import uuid
+import io
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -129,6 +131,69 @@ class AssetStorageService:
         if file_path.exists():
             return file_path
         return None
+
+    def create_bundle_zip(self, asset_id: str) -> Optional[bytes]:
+        """Creates an in-memory ZIP package containing all 3D formats (.glb, .obj, .stl) and metadata."""
+        asset = self.get_asset(asset_id)
+        if not asset:
+            return None
+
+        asset_dir = self.base_dir / asset_id
+        if not asset_dir.exists():
+            return None
+
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            # 1. Add 3D format files
+            for fmt in ["glb", "obj", "stl"]:
+                path = asset_dir / f"{asset_id}.{fmt}"
+                if path.exists():
+                    zip_file.write(path, arcname=f"{asset.title.replace(' ', '_')}_{asset_id}.{fmt}")
+
+            # 2. Add manifest.json
+            manifest_data = {
+                "polygen_version": "1.0.0",
+                "asset_id": asset.id,
+                "title": asset.title,
+                "prompt": asset.prompt,
+                "style": asset.style,
+                "provider": asset.provider,
+                "poly_count": asset.poly_count,
+                "vertex_count": asset.vertex_count,
+                "created_at": asset.created_at.isoformat(),
+                "formats": ["glb", "obj", "stl"],
+                "license": "Creative Commons CC-BY 4.0",
+                "generator": "PolyGen Text-to-3D Synthesis Core"
+            }
+            zip_file.writestr("manifest.json", json.dumps(manifest_data, indent=2))
+
+            # 3. Add README.txt
+            readme_text = f"""==================================================
+POLYGEN 3D ASSET BUNDLE
+==================================================
+Title:       {asset.title}
+Asset ID:    {asset.id}
+Prompt:      "{asset.prompt}"
+Style:       {asset.style}
+Polygons:    {asset.poly_count:,}
+Vertices:    {asset.vertex_count:,}
+Generated:   {asset.created_at.strftime('%Y-%m-%d %H:%M:%S UTC')}
+Engine:      PolyGen ({asset.provider})
+
+INCLUDED FILES:
+- *.glb: Binary glTF 2.0 (web, Three.js, Babylon.js, Unity)
+- *.obj: Wavefront OBJ (Blender, Maya, 3ds Max, Cinema4D)
+- *.stl: Stereolithography (3D Printing, slicing engines)
+- manifest.json: Complete technical metadata specification
+
+Exported from PolyGen 3D Studio:
+https://github.com/Veggies02/PolyGen
+==================================================
+"""
+            zip_file.writestr("README.txt", readme_text)
+
+        zip_buffer.seek(0)
+        return zip_buffer.getvalue()
 
     def seed_sample_assets(self):
         """Seed initial curated demo models so the workspace starts populated."""

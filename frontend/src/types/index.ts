@@ -62,12 +62,24 @@ export interface GenerationSettings {
   seed?: number;
 }
 
+export interface MaterialCustomization {
+  preset: 'default' | 'titanium' | 'cyberpunk-neon' | 'obsidian' | 'gold' | 'iridescent' | 'matte-carbon';
+  color: string;
+  metalness: number;
+  roughness: number;
+  emissiveColor: string;
+  emissiveIntensity: number;
+  clearcoat: number;
+  wireframeOverlay: boolean;
+}
+
 export interface ViewerOptions {
   wireframe: boolean;
   grid: boolean;
   autoRotate: boolean;
   shadingMode: 'pbr' | 'clay' | 'normals' | 'wireframe';
-  lightingPreset: 'studio' | 'cyberpunk' | 'dramatic' | 'soft';
+  lightingPreset: 'studio' | 'cyberpunk' | 'sunset' | 'space' | 'dramatic' | 'soft';
   backgroundColor: string;
   exposure: number;
+  materials?: MaterialCustomization;
 }

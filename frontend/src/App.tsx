@@ -323,6 +323,17 @@ export const App: React.FC = () => {
                   <ModelInspector
                     asset={activeAsset}
                     liveStats={liveStats}
+                    options={viewerOptions}
+                    onOptionsChange={setViewerOptions}
+                    onCaptureSnapshot={() => {
+                      const canvas = document.querySelector('canvas');
+                      if (canvas) {
+                        const link = document.createElement('a');
+                        link.download = `PolyGen-Render-${(activeAsset?.title || 'Asset').replace(/\s+/g, '_')}-${Date.now()}.png`;
+                        link.href = canvas.toDataURL('image/png');
+                        link.click();
+                      }
+                    }}
                   />
                 </div>
               )}
