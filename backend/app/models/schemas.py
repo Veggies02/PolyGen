@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+import re
 
 class GenerationRequest(BaseModel):
     prompt: str = Field(..., min_length=3, max_length=1000, description="Text prompt describing the desired 3D asset")
@@ -10,6 +11,40 @@ class GenerationRequest(BaseModel):
     poly_budget: str = Field("medium", description="Poly budget: 'low' (~5k), 'medium' (~25k), 'high' (~60k)")
     symmetry: bool = Field(False, description="Enforce bilateral symmetry")
     seed: Optional[int] = Field(None, description="Random seed for deterministic generation")
+
+    @field_validator("prompt")
+    @classmethod
+    def validate_prompt(cls, v: str) -> str:
+        cleaned = " ".join(v.split())
+        if len(cleaned) < 3:
+            raise ValueError("Prompt must contain at least 3 characters of meaningful text.")
+        if not re.search(r"[a-zA-Z0-9]", cleaned):
+            raise ValueError("Prompt must contain alphanumeric words describing the 3D asset.")
+        return cleaned
+
+    @field_validator("provider")
+    @classmethod
+    def validate_provider(cls, v: str) -> str:
+        allowed = {"demo", "tripo", "meshy"}
+        if v.lower() not in allowed:
+            raise ValueError(f"Invalid provider '{v}'. Must be one of: {', '.join(sorted(allowed))}")
+        return v.lower()
+
+    @field_validator("style")
+    @classmethod
+    def validate_style(cls, v: str) -> str:
+        allowed = {"scifi", "low-poly", "realistic", "cyberpunk", "organic"}
+        if v.lower() not in allowed:
+            raise ValueError(f"Invalid style '{v}'. Must be one of: {', '.join(sorted(allowed))}")
+        return v.lower()
+
+    @field_validator("poly_budget")
+    @classmethod
+    def validate_budget(cls, v: str) -> str:
+        allowed = {"low", "medium", "high"}
+        if v.lower() not in allowed:
+            raise ValueError(f"Invalid poly budget '{v}'. Must be one of: {', '.join(sorted(allowed))}")
+        return v.lower()
 
 class JobStatus(BaseModel):
     id: str

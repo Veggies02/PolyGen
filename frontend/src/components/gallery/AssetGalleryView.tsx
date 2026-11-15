@@ -14,15 +14,21 @@ import {
   ArrowRight, 
   Maximize2, 
   Grid,
-  Archive
+  Archive,
+  Trash2
 } from 'lucide-react';
 
 interface AssetGalleryViewProps {
   assets: Asset[];
   onInspectAsset: (asset: Asset) => void;
+  onDeleteAsset?: (assetId: string) => void;
 }
 
-export const AssetGalleryView: React.FC<AssetGalleryViewProps> = ({ assets, onInspectAsset }) => {
+export const AssetGalleryView: React.FC<AssetGalleryViewProps> = ({ 
+  assets, 
+  onInspectAsset,
+  onDeleteAsset 
+}) => {
   const [search, setSearch] = useState('');
   const [selectedGenre, setSelectedGenre] = useState<string>('all');
   const [selectedAccess, setSelectedAccess] = useState<string>('all');
@@ -363,17 +369,34 @@ export const AssetGalleryView: React.FC<AssetGalleryViewProps> = ({ assets, onIn
               <span>Download Complete Asset Bundle (.ZIP)</span>
             </a>
 
-            <button
-              onClick={() => {
-                onInspectAsset(selectedAsset);
-                setSelectedAsset(null);
-              }}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20"
-            >
-              <Box className="w-4 h-4" />
-              <span>Open in Mixar 3D Studio</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  onInspectAsset(selectedAsset);
+                  setSelectedAsset(null);
+                }}
+                className="flex-1 py-3 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20"
+              >
+                <Box className="w-4 h-4" />
+                <span>Open in Mixar 3D Studio</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+
+              {onDeleteAsset && (
+                <button
+                  onClick={() => {
+                    if (confirm(`Are you sure you want to delete "${selectedAsset.title}"?`)) {
+                      onDeleteAsset(selectedAsset.id);
+                      setSelectedAsset(null);
+                    }
+                  }}
+                  className="p-3 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-500/30 text-rose-300 hover:text-rose-100 transition-colors"
+                  title="Delete Asset from Workspace"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

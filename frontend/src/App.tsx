@@ -8,6 +8,7 @@ import { ModelInspector } from './components/viewer/ModelInspector';
 import { PromptBox } from './components/studio/PromptBox';
 import { SettingsPanel } from './components/studio/SettingsPanel';
 import { JobProgressModal } from './components/studio/JobProgressModal';
+import { GenerationHistoryModal } from './components/studio/GenerationHistoryModal';
 import { DashboardView } from './components/dashboard/DashboardView';
 import { AssetGalleryView } from './components/gallery/AssetGalleryView';
 import { PromptLabView } from './components/studio/PromptLabView';
@@ -33,6 +34,7 @@ export const App: React.FC = () => {
   // Global Action Modals state
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
   const [isConfigApiOpen, setIsConfigApiOpen] = useState<boolean>(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
   const [helpModalSection, setHelpModalSection] = useState<'guides' | 'faq' | 'support' | null>(null);
   const [isPlanModalOpen, setIsPlanModalOpen] = useState<boolean>(false);
 
@@ -175,6 +177,21 @@ export const App: React.FC = () => {
     setCurrentView('studio');
   };
 
+  // Handle Delete Asset
+  const handleDeleteAsset = async (id: string) => {
+    try {
+      await api.deleteAsset(id);
+      const updated = assets.filter((a) => a.id !== id);
+      setAssets(updated);
+      if (activeAsset?.id === id) {
+        setActiveAsset(updated.length > 0 ? updated[0] : null);
+      }
+      api.getStats().then(setStats).catch(() => {});
+    } catch (err: any) {
+      alert(`Failed to delete asset: ${err.message || 'Unknown error'}`);
+    }
+  };
+
   return (
     <div className="flex h-screen w-screen bg-[#090a0f] text-slate-200 overflow-hidden font-sans">
       {/* Sidebar (collapses in Zen Mode for distraction-free 3D work) */}
@@ -198,6 +215,7 @@ export const App: React.FC = () => {
             currentView={currentView}
             onNavigateStudio={() => setCurrentView('studio')}
             onOpenConfigApi={() => setIsConfigApiOpen(true)}
+            onOpenHistory={() => setIsHistoryOpen(true)}
             assetCount={assets.length}
           />
         )}
@@ -250,6 +268,7 @@ export const App: React.FC = () => {
             <AssetGalleryView
               assets={assets}
               onInspectAsset={handleInspectAsset}
+              onDeleteAsset={handleDeleteAsset}
             />
           )}
 
@@ -340,6 +359,7 @@ export const App: React.FC = () => {
                     liveStats={liveStats}
                     options={viewerOptions}
                     onOptionsChange={setViewerOptions}
+                    onDeleteAsset={handleDeleteAsset}
                     onCaptureSnapshot={() => {
                       const canvas = document.querySelector('canvas');
                       if (canvas) {
@@ -369,6 +389,18 @@ export const App: React.FC = () => {
           setActiveJob(null);
         }}
         onClose={() => setActiveJob(null)}
+      />
+
+      {/* Generation History & Queue Modal */}
+      <GenerationHistoryModal
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+        onInspectAsset={handleInspectAsset}
+        onReusePrompt={(promptText) => {
+          setGenerationSettings((prev) => ({ ...prev, prompt: promptText }));
+          setCurrentView('studio');
+        }}
+        assets={assets}
       />
 
       {/* Global Interactive Modals */}

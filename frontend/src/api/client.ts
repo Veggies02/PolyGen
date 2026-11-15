@@ -36,6 +36,14 @@ export const api = {
     return res.json();
   },
 
+  async deleteAsset(id: string): Promise<{ status: string; id: string }> {
+    const res = await fetch(`${API_BASE}/assets/${id}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('Failed to delete asset');
+    return res.json();
+  },
+
   getDownloadUrl(assetId: string, format: 'glb' | 'obj' | 'stl') {
     return `${API_BASE}/assets/${assetId}/download/${format}`;
   },
@@ -60,6 +68,12 @@ export const api = {
   async getJob(id: string): Promise<JobStatus> {
     const res = await fetch(`${API_BASE}/generate/jobs/${id}`);
     if (!res.ok) throw new Error('Failed to fetch job status');
+    return res.json();
+  },
+
+  async listJobs(): Promise<JobStatus[]> {
+    const res = await fetch(`${API_BASE}/generate/jobs`);
+    if (!res.ok) throw new Error('Failed to fetch generation jobs');
     return res.json();
   },
 

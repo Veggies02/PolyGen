@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import type { Asset, ViewerOptions } from '../../types';
 import { api } from '../../api/client';
-import { Download, Box, Layers, Maximize2, Tag, Info, Cpu, Palette, Archive, Camera } from 'lucide-react';
+import { Download, Box, Layers, Maximize2, Tag, Info, Cpu, Palette, Archive, Camera, Trash2 } from 'lucide-react';
 import { MaterialShaderStudio } from '../studio/MaterialShaderStudio';
 
 interface ModelInspectorProps {
@@ -15,6 +15,7 @@ interface ModelInspectorProps {
   options?: ViewerOptions;
   onOptionsChange?: (options: ViewerOptions) => void;
   onCaptureSnapshot?: () => void;
+  onDeleteAsset?: (assetId: string) => void;
 }
 
 export const ModelInspector: React.FC<ModelInspectorProps> = ({ 
@@ -22,7 +23,8 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
   liveStats,
   options,
   onOptionsChange,
-  onCaptureSnapshot
+  onCaptureSnapshot,
+  onDeleteAsset
 }) => {
   const [activeTab, setActiveTab] = useState<'info' | 'shaders'>('info');
 
@@ -213,6 +215,21 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
               <Archive className="w-3.5 h-3.5 text-amber-400" />
               <span>Download Asset Bundle (.ZIP)</span>
             </a>
+
+            {onDeleteAsset && (
+              <button
+                onClick={() => {
+                  if (confirm(`Are you sure you want to delete "${asset.title}"?`)) {
+                    onDeleteAsset(asset.id);
+                  }
+                }}
+                className="w-full py-2 rounded-xl bg-rose-950/30 hover:bg-rose-900/40 border border-rose-500/30 text-rose-300 font-medium flex items-center justify-center gap-1.5 transition-colors mt-2"
+                title="Delete this 3D model from storage"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                <span>Delete Asset</span>
+              </button>
+            )}
           </div>
         </>
       )}

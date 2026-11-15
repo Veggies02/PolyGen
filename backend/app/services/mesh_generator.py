@@ -489,6 +489,112 @@ class ProceduralMeshFactory:
         return MeshData(vertices, faces, name="Quantum_Gyro_Artifact")
 
     @classmethod
+    def create_blade_weapon(cls, scale: float = 1.0) -> MeshData:
+        vertices: List[Tuple[float, float, float]] = []
+        faces: List[Tuple[int, int, int]] = []
+
+        def add_box(min_pt, max_pt):
+            start = len(vertices)
+            x0, y0, z0 = min_pt
+            x1, y1, z1 = max_pt
+            box_verts = [
+                (x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
+                (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)
+            ]
+            vertices.extend(box_verts)
+            box_faces = [
+                (0, 2, 1), (0, 3, 2),
+                (4, 5, 6), (4, 6, 7),
+                (0, 1, 5), (0, 5, 4),
+                (3, 7, 6), (3, 6, 2),
+                (0, 4, 7), (0, 7, 3),
+                (1, 2, 6), (1, 6, 5)
+            ]
+            for f in box_faces:
+                faces.append((start + f[0], start + f[1], start + f[2]))
+
+        # 1. Pommel at base
+        add_box((-0.12 * scale, -0.9 * scale, -0.12 * scale), (0.12 * scale, -0.75 * scale, 0.12 * scale))
+        # 2. Grip handle
+        add_box((-0.07 * scale, -0.75 * scale, -0.07 * scale), (0.07 * scale, -0.1 * scale, 0.07 * scale))
+        # 3. Crossguard
+        add_box((-0.6 * scale, -0.1 * scale, -0.12 * scale), (0.6 * scale, 0.05 * scale, 0.12 * scale))
+        add_box((-0.75 * scale, 0.0 * scale, -0.08 * scale), (-0.55 * scale, 0.22 * scale, 0.08 * scale))
+        add_box((0.55 * scale, 0.0 * scale, -0.08 * scale), (0.75 * scale, 0.22 * scale, 0.08 * scale))
+
+        # 4. Diamond faceted Blade Body
+        b_start = len(vertices)
+        w0, t0, y0 = 0.24 * scale, 0.05 * scale, 0.05 * scale
+        w1, t1, y1 = 0.18 * scale, 0.04 * scale, 1.35 * scale
+        ytip = 1.95 * scale
+
+        blade_verts = [
+            (-w0, y0, 0), (w0, y0, 0), (0, y0, t0), (0, y0, -t0),
+            (-w1, y1, 0), (w1, y1, 0), (0, y1, t1), (0, y1, -t1),
+            (0, ytip, 0)
+        ]
+        vertices.extend(blade_verts)
+
+        b_faces = [
+            (0, 2, 6), (0, 6, 4),
+            (2, 1, 5), (2, 5, 6),
+            (3, 0, 4), (3, 4, 7),
+            (1, 3, 7), (1, 7, 5),
+            (4, 6, 8),
+            (6, 5, 8),
+            (5, 7, 8),
+            (7, 4, 8)
+        ]
+        for bf in b_faces:
+            faces.append((b_start + bf[0], b_start + bf[1], b_start + bf[2]))
+
+        return MeshData(vertices, faces, name="Cyber_Blade_Weapon")
+
+    @classmethod
+    def create_modular_tower(cls, scale: float = 1.0) -> MeshData:
+        vertices: List[Tuple[float, float, float]] = []
+        faces: List[Tuple[int, int, int]] = []
+
+        def add_box(min_pt, max_pt):
+            start = len(vertices)
+            x0, y0, z0 = min_pt
+            x1, y1, z1 = max_pt
+            box_verts = [
+                (x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
+                (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)
+            ]
+            vertices.extend(box_verts)
+            box_faces = [
+                (0, 2, 1), (0, 3, 2),
+                (4, 5, 6), (4, 6, 7),
+                (0, 1, 5), (0, 5, 4),
+                (3, 7, 6), (3, 6, 2),
+                (0, 4, 7), (0, 7, 3),
+                (1, 2, 6), (1, 6, 5)
+            ]
+            for f in box_faces:
+                faces.append((start + f[0], start + f[1], start + f[2]))
+
+        # Base foundation podium
+        add_box((-1.2 * scale, 0, -1.2 * scale), (1.2 * scale, 0.15 * scale, 1.2 * scale))
+        add_box((-0.9 * scale, 0.15 * scale, -0.9 * scale), (0.9 * scale, 0.35 * scale, 0.9 * scale))
+
+        # Main tower shaft
+        add_box((-0.6 * scale, 0.35 * scale, -0.6 * scale), (0.6 * scale, 2.2 * scale, 0.6 * scale))
+
+        # Cantilevered habitat modules
+        add_box((-0.95 * scale, 0.6 * scale, -0.45 * scale), (-0.5 * scale, 1.0 * scale, 0.45 * scale))
+        add_box((0.5 * scale, 1.1 * scale, -0.45 * scale), (0.95 * scale, 1.5 * scale, 0.45 * scale))
+        add_box((-0.45 * scale, 1.4 * scale, 0.5 * scale), (0.45 * scale, 1.8 * scale, 0.95 * scale))
+
+        # Rooftop crown & antenna
+        add_box((-0.7 * scale, 2.2 * scale, -0.7 * scale), (0.7 * scale, 2.35 * scale, 0.7 * scale))
+        add_box((-0.4 * scale, 2.35 * scale, -0.4 * scale), (0.4 * scale, 2.55 * scale, 0.4 * scale))
+        add_box((-0.04 * scale, 2.55 * scale, -0.04 * scale), (0.04 * scale, 3.2 * scale, 0.04 * scale))
+
+        return MeshData(vertices, faces, name="Modular_Habitat_Tower")
+
+    @classmethod
     def generate_by_prompt(cls, prompt: str, style: str = "scifi", seed: int = None) -> MeshData:
         lower = prompt.lower()
         if any(w in lower for w in ["drone", "ship", "aircraft", "robot", "mech", "cyber", "vehicle", "plane"]):
@@ -499,15 +605,23 @@ class ProceduralMeshFactory:
             return cls.create_crystal(seed=seed or 42)
         elif any(w in lower for w in ["core", "orb", "gyro", "portal", "quantum", "relic", "artifact"]):
             return cls.create_gyro_artifact()
+        elif any(w in lower for w in ["blade", "sword", "weapon", "axe", "dagger", "saber", "spear"]):
+            return cls.create_blade_weapon()
+        elif any(w in lower for w in ["building", "tower", "house", "habitat", "architecture", "pod", "structure"]):
+            return cls.create_modular_tower()
         else:
             # Hash prompt to pick or generate variant
             h = int(hashlib.md5(prompt.encode()).hexdigest(), 16)
-            choice = h % 4
+            choice = h % 6
             if choice == 0:
                 return cls.create_drone()
             elif choice == 1:
                 return cls.create_crystal(seed=h % 1000)
             elif choice == 2:
                 return cls.create_helmet()
-            else:
+            elif choice == 3:
                 return cls.create_gyro_artifact()
+            elif choice == 4:
+                return cls.create_blade_weapon()
+            else:
+                return cls.create_modular_tower()

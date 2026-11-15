@@ -2,6 +2,7 @@ import json
 import uuid
 import io
 import zipfile
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -61,6 +62,22 @@ class AssetStorageService:
                     item["created_at"] = datetime.fromisoformat(item["created_at"])
                 return AssetMetadata(**item)
         return None
+
+    def delete_asset(self, asset_id: str) -> bool:
+        """Deletes an asset from the persistent index and disk storage."""
+        raw_list = self._load_index()
+        initial_len = len(raw_list)
+        filtered = [item for item in raw_list if item.get("id") != asset_id]
+        if len(filtered) == initial_len:
+            return False
+
+        self._save_index(filtered)
+
+        asset_dir = self.base_dir / asset_id
+        if asset_dir.exists() and asset_dir.is_dir():
+            shutil.rmtree(asset_dir, ignore_errors=True)
+
+        return True
 
     def save_asset(
         self,

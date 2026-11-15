@@ -116,3 +116,66 @@ async def test_stats():
         data = res.json()
         assert data["total_assets"] >= 4
         assert data["available_providers"] >= 3
+
+@pytest.mark.asyncio
+async def test_prompt_validation_failures():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Whitespace only prompt
+        res = await client.post("/api/generate", json={"prompt": "   ", "provider": "demo", "style": "scifi"})
+        assert res.status_code == 422
+
+        # 2. Invalid style
+        res = await client.post("/api/generate", json={"prompt": "cool drone", "provider": "demo", "style": "invalid_style"})
+        assert res.status_code == 422
+
+        # 3. Invalid provider
+        res = await client.post("/api/generate", json={"prompt": "cool drone", "provider": "unknown_ai", "style": "scifi"})
+        assert res.status_code == 422
+
+@pytest.mark.asyncio
+async def test_new_procedural_mesh_types():
+    # Blade weapon
+    blade = ProceduralMeshFactory.generate_by_prompt("tactical energy sword with curved plasma edge", style="cyberpunk")
+    assert blade.name == "Cyber_Blade_Weapon"
+    assert blade.poly_count > 30
+    assert len(blade.export_glb()) > 500
+
+    # Modular habitat tower
+    tower = ProceduralMeshFactory.generate_by_prompt("modular skyscraper habitat tower with cantilevered pods", style="scifi")
+    assert tower.name == "Modular_Habitat_Tower"
+    assert tower.poly_count > 50
+    assert len(tower.export_glb()) > 500
+
+@pytest.mark.asyncio
+async def test_asset_deletion():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Create a disposable asset
+        mesh = ProceduralMeshFactory.create_drone()
+        asset = asset_storage.save_asset(
+            title="Disposable Test Drone",
+            prompt="disposable drone for deletion testing",
+            provider="demo",
+            style="scifi",
+            glb_bytes=mesh.export_glb(),
+            obj_str=mesh.export_obj(),
+            stl_bytes=mesh.export_stl(),
+            poly_count=mesh.poly_count,
+            vertex_count=mesh.vertex_count,
+            is_demo=True
+        )
+        asset_id = asset.id
+
+        # Verify it exists
+        get_res = await client.get(f"/api/assets/{asset_id}")
+        assert get_res.status_code == 200
+
+        # Delete it
+        del_res = await client.delete(f"/api/assets/{asset_id}")
+        assert del_res.status_code == 200
+        assert del_res.json()["status"] == "deleted"
+
+        # Verify it no longer exists
+        get_res2 = await client.get(f"/api/assets/{asset_id}")
+        assert get_res2.status_code == 404

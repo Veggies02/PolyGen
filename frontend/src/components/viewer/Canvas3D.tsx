@@ -234,15 +234,17 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   };
 
   // Click on Gizmo to snap camera
-  const handleSnapCamera = (axis: 'x' | 'y' | 'z') => {
+  const handleSnapCamera = (axis: 'x' | 'y' | 'z' | 'iso') => {
     if (!cameraRef.current || !controlsRef.current) return;
     const dist = 5.0;
     if (axis === 'x') {
       cameraRef.current.position.set(dist, 1.0, 0);
     } else if (axis === 'y') {
       cameraRef.current.position.set(0.01, dist, 0.01);
-    } else {
+    } else if (axis === 'z') {
       cameraRef.current.position.set(0, 1.0, dist);
+    } else {
+      cameraRef.current.position.set(dist * 0.7, dist * 0.6, dist * 0.7);
     }
     controlsRef.current.target.set(0, 0.8, 0);
     controlsRef.current.update();
@@ -485,11 +487,22 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   };
 
   const handleResetCamera = () => {
-    if (cameraRef.current && controlsRef.current) {
+    if (!cameraRef.current || !controlsRef.current) return;
+    if (modelGroupRef.current && modelGroupRef.current.children.length > 0) {
+      const bbox = new THREE.Box3().setFromObject(modelGroupRef.current);
+      const size = bbox.getSize(new THREE.Vector3());
+      const center = bbox.getCenter(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z, 1.0);
+      const fov = cameraRef.current.fov * (Math.PI / 180);
+      const distance = Math.abs(maxDim / Math.sin(fov / 2)) * 0.95;
+
+      cameraRef.current.position.set(distance * 0.9, distance * 0.7, distance * 1.1);
+      controlsRef.current.target.copy(center);
+    } else {
       cameraRef.current.position.set(3.5, 2.8, 4.5);
       controlsRef.current.target.set(0, 0.8, 0);
-      controlsRef.current.update();
     }
+    controlsRef.current.update();
   };
 
   // Reset imported model if a library model is clicked
@@ -1087,8 +1100,15 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
               Z
             </button>
             <button
+              onClick={() => handleSnapCamera('iso')}
+              title="Snap Isometric 3D View"
+              className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[9px] text-amber-400 hover:bg-slate-800 font-bold"
+            >
+              Iso
+            </button>
+            <button
               onClick={handleResetCamera}
-              title="Reset Orbit"
+              title="Auto-Fit Camera to Model Bounds"
               className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[9px] text-slate-300 hover:bg-slate-800 font-bold"
             >
               Fit

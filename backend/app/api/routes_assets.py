@@ -20,6 +20,14 @@ async def get_asset(asset_id: str):
         raise HTTPException(status_code=404, detail="Asset not found")
     return asset
 
+@router.delete("/{asset_id}")
+async def delete_asset(asset_id: str):
+    """Deletes an asset from the system."""
+    success = asset_storage.delete_asset(asset_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Asset not found or already deleted")
+    return {"status": "deleted", "id": asset_id}
+
 @router.get("/{asset_id}/download/{fmt}")
 async def download_asset(asset_id: str, fmt: str):
     fmt = fmt.lower()

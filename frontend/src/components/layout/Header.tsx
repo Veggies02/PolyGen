@@ -1,14 +1,15 @@
 import React from 'react';
-import { Box, ShieldCheck, Plus } from 'lucide-react';
+import { Box, ShieldCheck, Plus, History } from 'lucide-react';
 
 interface HeaderProps {
   currentView: string;
   onNavigateStudio: () => void;
   onOpenConfigApi: () => void;
+  onOpenHistory?: () => void;
   assetCount?: number;
 }
 
-export const Header: React.FC<HeaderProps> = ({ currentView, onNavigateStudio, onOpenConfigApi }) => {
+export const Header: React.FC<HeaderProps> = ({ currentView, onNavigateStudio, onOpenConfigApi, onOpenHistory }) => {
   const viewTitles: Record<string, string> = {
     dashboard: 'Workspace Overview',
     studio: 'Text-to-3D Studio & Inspector (Mixar)',
@@ -42,6 +43,19 @@ export const Header: React.FC<HeaderProps> = ({ currentView, onNavigateStudio, o
 
       {/* Right Tools & Badges */}
       <div className="flex items-center gap-3">
+        {/* Generation Queue & History */}
+        {onOpenHistory && (
+          <button
+            onClick={onOpenHistory}
+            title="View generation job history and active queue"
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-900 border border-slate-700/80 text-slate-300 text-xs font-medium cursor-pointer hover:bg-slate-800 hover:border-cyan-500/50 hover:text-cyan-300 transition-all shadow-sm"
+          >
+            <History className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden md:inline font-sans">Jobs & History</span>
+            <span className="md:hidden font-sans">History</span>
+          </button>
+        )}
+
         {/* Interactive Demo Mode Badge */}
         <button
           onClick={onOpenConfigApi}
