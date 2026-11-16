@@ -83,3 +83,9 @@ export interface ViewerOptions {
   exposure: number;
   materials?: MaterialCustomization;
 }
+
+export interface TransformData {
+  position: [number, number, number];
+  rotation: [number, number, number];
+  scale: [number, number, number];
+}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import type { Asset, JobStatus, ProviderInfo, StatsOverview, GenerationSettings, ViewerOptions } from './types';
+import type { Asset, JobStatus, ProviderInfo, StatsOverview, GenerationSettings, ViewerOptions, TransformData } from './types';
 import { api } from './api/client';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
@@ -50,6 +50,14 @@ export const App: React.FC = () => {
     dimensions: { x: 0, y: 0, z: 0 },
     materialCount: 0,
   });
+
+  // Live Transform Telemetry & Explode Assembly State
+  const [transformData, setTransformData] = useState<TransformData>({
+    position: [0, 0, 0],
+    rotation: [0, 0, 0],
+    scale: [1, 1, 1],
+  });
+  const [explodeFactor, setExplodeFactor] = useState<number>(0);
 
   // 3D Viewer Configuration
   const [viewerOptions, setViewerOptions] = useState<ViewerOptions>({
@@ -323,6 +331,9 @@ export const App: React.FC = () => {
                   options={viewerOptions}
                   onOptionsChange={setViewerOptions}
                   onStatsCalculated={setLiveStats}
+                  onTransformChange={setTransformData}
+                  explodeFactor={explodeFactor}
+                  onExplodeChange={setExplodeFactor}
                   isZenMode={isZenMode}
                   onToggleZenMode={() => setIsZenMode(!isZenMode)}
                   className="w-full h-full"
@@ -360,6 +371,18 @@ export const App: React.FC = () => {
                     options={viewerOptions}
                     onOptionsChange={setViewerOptions}
                     onDeleteAsset={handleDeleteAsset}
+                    transformData={transformData}
+                    explodeFactor={explodeFactor}
+                    onExplodeChange={setExplodeFactor}
+                    onResetTransform={() => {
+                      setTransformData({
+                        position: [0, 0, 0],
+                        rotation: [0, 0, 0],
+                        scale: [1, 1, 1],
+                      });
+                      const resetBtn = document.querySelector('button[title*="Reset Position"]') as HTMLButtonElement;
+                      if (resetBtn) resetBtn.click();
+                    }}
                     onCaptureSnapshot={() => {
                       const canvas = document.querySelector('canvas');
                       if (canvas) {

@@ -2,7 +2,11 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import type { ViewerOptions } from '../../types';
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
+import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
+import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
+import type { ViewerOptions, TransformData } from '../../types';
 import { 
   Loader2, 
   AlertCircle, 
@@ -24,7 +28,8 @@ import {
   Camera,
   Archive,
   UploadCloud,
-  Video
+  Video,
+  Layers
 } from 'lucide-react';
 import { api } from '../../api/client';
 
@@ -40,6 +45,9 @@ interface Canvas3DProps {
     dimensions: { x: number; y: number; z: number };
     materialCount: number;
   }) => void;
+  onTransformChange?: (transform: TransformData) => void;
+  explodeFactor?: number;
+  onExplodeChange?: (factor: number) => void;
   className?: string;
   isZenMode?: boolean;
   onToggleZenMode?: () => void;
@@ -52,6 +60,9 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   options,
   onOptionsChange,
   onStatsCalculated,
+  onTransformChange,
+  explodeFactor = 0,
+  onExplodeChange,
   className = '',
   isZenMode = false,
   onToggleZenMode,
@@ -62,23 +73,29 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
+  const transformControlsRef = useRef<TransformControls | null>(null);
+  const transformHelperRef = useRef<THREE.Object3D | null>(null);
   const modelGroupRef = useRef<THREE.Group | null>(null);
   const primitivesGroupRef = useRef<THREE.Group | null>(null);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const lightsGroupRef = useRef<THREE.Group | null>(null);
   const boxHelperRef = useRef<THREE.BoxHelper | null>(null);
+  const onTransformChangeRef = useRef(onTransformChange);
+  onTransformChangeRef.current = onTransformChange;
 
   const [loading, setLoading] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Studio tabs and tools
   const [activeTab, setActiveTab] = useState<'modeling' | 'uv' | 'texturing'>('modeling');
-  const [activeTool, setActiveTool] = useState<'select' | 'move' | 'rotate' | 'scale' | 'transform' | 'measure'>('select');
+  const [activeTool, setActiveTool] = useState<'select' | 'move' | 'rotate' | 'scale' | 'transform' | 'measure' | 'explode'>('select');
   const [objectMode, setObjectMode] = useState<'Object Mode' | 'Edit Mode' | 'Sculpt Mode'>('Object Mode');
   const [coordSystem, setCoordSystem] = useState<'Global' | 'Local'>('Global');
   const [showAddMenu, setShowAddMenu] = useState<boolean>(false);
   const [showModeMenu, setShowModeMenu] = useState<boolean>(false);
   const [showDownloadMenu, setShowDownloadMenu] = useState<boolean>(false);
+  const [localExplode, setLocalExplode] = useState<number>(0);
+  const effectiveExplode = explodeFactor !== undefined ? explodeFactor : localExplode;
   
   // Animation / Turntable timeline
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -150,6 +167,40 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     scene.add(primitivesGroup);
     primitivesGroupRef.current = primitivesGroup;
 
+    // Transform Controls for Interactive Viewport Manipulation
+    const transformControls = new TransformControls(camera, renderer.domElement);
+    transformControls.size = 0.75;
+    const transformHelper = transformControls.getHelper();
+    scene.add(transformHelper);
+    transformControlsRef.current = transformControls;
+    transformHelperRef.current = transformHelper;
+
+    transformControls.addEventListener('dragging-changed', (event: any) => {
+      if (controlsRef.current) {
+        controlsRef.current.enabled = !event.value;
+      }
+    });
+
+    transformControls.addEventListener('change', () => {
+      if (boxHelperRef.current) {
+        boxHelperRef.current.update();
+      }
+      if (modelGroupRef.current) {
+        const p = modelGroupRef.current.position;
+        const r = modelGroupRef.current.rotation;
+        const s = modelGroupRef.current.scale;
+        onTransformChangeRef.current?.({
+          position: [Number(p.x.toFixed(2)), Number(p.y.toFixed(2)), Number(p.z.toFixed(2))],
+          rotation: [
+            Number(THREE.MathUtils.radToDeg(r.x).toFixed(1)),
+            Number(THREE.MathUtils.radToDeg(r.y).toFixed(1)),
+            Number(THREE.MathUtils.radToDeg(r.z).toFixed(1)),
+          ],
+          scale: [Number(s.x.toFixed(2)), Number(s.y.toFixed(2)), Number(s.z.toFixed(2))],
+        });
+      }
+    });
+
     // Resize Observer
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -180,6 +231,8 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     return () => {
       cancelAnimationFrame(animationId);
       resizeObserver.disconnect();
+      transformControls.dispose();
+      scene.remove(transformHelper);
       if (renderer.domElement && container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
@@ -280,13 +333,70 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     setShowAddMenu(false);
   };
 
+  // Update transform telemetry for parent/inspector
+  const updateTransformTelemetry = useCallback(() => {
+    if (!modelGroupRef.current) return;
+    const p = modelGroupRef.current.position;
+    const r = modelGroupRef.current.rotation;
+    const s = modelGroupRef.current.scale;
+    onTransformChangeRef.current?.({
+      position: [Number(p.x.toFixed(2)), Number(p.y.toFixed(2)), Number(p.z.toFixed(2))],
+      rotation: [
+        Number(THREE.MathUtils.radToDeg(r.x).toFixed(1)),
+        Number(THREE.MathUtils.radToDeg(r.y).toFixed(1)),
+        Number(THREE.MathUtils.radToDeg(r.z).toFixed(1)),
+      ],
+      scale: [Number(s.x.toFixed(2)), Number(s.y.toFixed(2)), Number(s.z.toFixed(2))],
+    });
+  }, []);
+
+  // Sync TransformControls mode when activeTool or coordSystem changes
+  useEffect(() => {
+    if (!transformControlsRef.current || !modelGroupRef.current) return;
+    const tc = transformControlsRef.current;
+    tc.setSpace(coordSystem === 'Global' ? 'world' : 'local');
+
+    if (activeTool === 'move') {
+      tc.attach(modelGroupRef.current);
+      tc.setMode('translate');
+    } else if (activeTool === 'rotate') {
+      tc.attach(modelGroupRef.current);
+      tc.setMode('rotate');
+    } else if (activeTool === 'scale') {
+      tc.attach(modelGroupRef.current);
+      tc.setMode('scale');
+    } else {
+      tc.detach();
+    }
+  }, [activeTool, coordSystem]);
+
+  // Explode effect: Disassembles submeshes along radial vectors
+  useEffect(() => {
+    if (!modelGroupRef.current) return;
+    modelGroupRef.current.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        if (mesh.userData.originalPosition && mesh.userData.explodeVector) {
+          mesh.position.copy(mesh.userData.originalPosition).addScaledVector(
+            mesh.userData.explodeVector,
+            effectiveExplode
+          );
+        }
+      }
+    });
+    if (boxHelperRef.current) {
+      boxHelperRef.current.update();
+    }
+  }, [effectiveExplode]);
+
   // Left Tool Action Handlers
   const handleToolClick = (tool: typeof activeTool) => {
     setActiveTool(tool);
     if (!modelGroupRef.current) return;
+    const tc = transformControlsRef.current;
 
     if (tool === 'select') {
-      // Toggle bounding box selection helper
+      if (tc) tc.detach();
       if (boxHelperRef.current && sceneRef.current) {
         sceneRef.current.remove(boxHelperRef.current);
         boxHelperRef.current = null;
@@ -296,23 +406,117 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
         boxHelperRef.current = box;
       }
     } else if (tool === 'move') {
-      // Step position along X
-      modelGroupRef.current.position.x = (modelGroupRef.current.position.x + 0.3) % 1.5;
+      if (tc) {
+        tc.attach(modelGroupRef.current);
+        tc.setMode('translate');
+      }
     } else if (tool === 'rotate') {
-      // Rotate 45 degrees
-      modelGroupRef.current.rotation.y += Math.PI / 4;
+      if (tc) {
+        tc.attach(modelGroupRef.current);
+        tc.setMode('rotate');
+      }
     } else if (tool === 'scale') {
-      // Cycle scale 1.0 -> 1.25 -> 1.5 -> 0.8 -> 1.0
-      const currentScale = modelGroupRef.current.scale.x;
-      const nextScale = currentScale >= 1.5 ? 0.8 : currentScale + 0.25;
-      modelGroupRef.current.scale.set(nextScale, nextScale, nextScale);
+      if (tc) {
+        tc.attach(modelGroupRef.current);
+        tc.setMode('scale');
+      }
     } else if (tool === 'transform') {
-      // Reset position, rotation, scale to defaults
+      if (tc) tc.detach();
       modelGroupRef.current.position.set(0, 0, 0);
       modelGroupRef.current.rotation.set(0, 0, 0);
       modelGroupRef.current.scale.set(1, 1, 1);
+      if (boxHelperRef.current) boxHelperRef.current.update();
+      updateTransformTelemetry();
     } else if (tool === 'measure') {
+      if (tc) tc.detach();
       setShowDimensions((prev) => !prev);
+    } else if (tool === 'explode') {
+      if (tc) tc.detach();
+    }
+  };
+
+  // Keyboard Hotkeys: G (Grab/Move), R (Rotate), S (Scale), Q (Select), E (Explode), Space (Turntable)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+      if (e.key === 'g' || e.key === 'G') {
+        setActiveTool('move');
+      } else if (e.key === 'r' || e.key === 'R') {
+        setActiveTool('rotate');
+      } else if (e.key === 's' || e.key === 'S') {
+        setActiveTool('scale');
+      } else if (e.key === 'q' || e.key === 'Q' || e.key === 'Escape') {
+        setActiveTool('select');
+      } else if (e.key === 'e' || e.key === 'E') {
+        setActiveTool((prev) => (prev === 'explode' ? 'select' : 'explode'));
+      } else if (e.code === 'Space') {
+        e.preventDefault();
+        setIsPlaying((prev) => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Client-Side 3D Exporters (Exports current live transformed mesh directly from Three.js scene)
+  const handleClientExport = (format: 'glb' | 'obj' | 'stl') => {
+    if (!modelGroupRef.current) return;
+    const target = modelGroupRef.current;
+    const baseName = (importedName || assetTitle || 'PolyGen_Model').replace(/\s+/g, '_');
+
+    if (format === 'obj') {
+      try {
+        const exporter = new OBJExporter();
+        const result = exporter.parse(target);
+        const blob = new Blob([result], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${baseName}_live.obj`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error('OBJ Export failed:', err);
+      }
+    } else if (format === 'stl') {
+      try {
+        const exporter = new STLExporter();
+        const result = exporter.parse(target, { binary: true });
+        const blob = new Blob([result], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${baseName}_live.stl`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (err) {
+        console.error('STL Export failed:', err);
+      }
+    } else if (format === 'glb') {
+      try {
+        const exporter = new GLTFExporter();
+        exporter.parse(
+          target,
+          (gltf) => {
+            const blob = new Blob([gltf as ArrayBuffer], { type: 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${baseName}_live.glb`;
+            a.click();
+            URL.revokeObjectURL(url);
+          },
+          (error) => {
+            console.error('GLB Export error:', error);
+          },
+          { binary: true }
+        );
+      } catch (err) {
+        console.error('GLB Export failed:', err);
+      }
     }
   };
 
@@ -572,6 +776,20 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
             }
 
             mesh.userData.originalMaterial = mesh.material;
+            mesh.userData.originalPosition = mesh.position.clone();
+
+            // Compute radial vector from bounding center for explode disassembly
+            const childBox = new THREE.Box3().setFromObject(mesh);
+            const childCenter = childBox.getCenter(new THREE.Vector3());
+            const radial = childCenter.clone().sub(center);
+            if (radial.lengthSq() < 0.001) {
+              radial.set(
+                Math.sin(mesh.id * 1.5),
+                Math.abs(Math.cos(mesh.id * 2.1)) + 0.5,
+                Math.cos(mesh.id * 1.5)
+              );
+            }
+            mesh.userData.explodeVector = radial.normalize().multiplyScalar(1.25);
           }
         });
 
@@ -873,45 +1091,81 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
               <ChevronDown className="w-3 h-3 text-slate-500" />
             </button>
 
-            {showDownloadMenu && assetId && (
-              <div className="absolute right-0 top-full mt-1 w-44 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-2 z-40 flex flex-col gap-1 text-xs text-slate-300">
-                <span className="text-[10px] uppercase font-bold text-slate-500 px-2 py-1">Export 3D Asset</span>
-                <a
-                  href={api.getDownloadUrl(assetId, 'glb')}
-                  download={`${assetId}.glb`}
-                  className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-200 hover:text-cyan-300"
+            {showDownloadMenu && (
+              <div className="absolute right-0 top-full mt-1 w-52 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-2 z-40 flex flex-col gap-1 text-xs text-slate-300">
+                {assetId && (
+                  <>
+                    <span className="text-[10px] uppercase font-bold text-slate-500 px-2 py-1">Stored 3D Asset</span>
+                    <a
+                      href={api.getDownloadUrl(assetId, 'glb')}
+                      download={`${assetId}.glb`}
+                      className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-200 hover:text-cyan-300"
+                    >
+                      <span className="font-semibold">GLB</span>
+                      <span className="text-[10px] text-slate-500">glTF Binary</span>
+                    </a>
+                    <a
+                      href={api.getDownloadUrl(assetId, 'obj')}
+                      download={`${assetId}.obj`}
+                      className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-200 hover:text-slate-100"
+                    >
+                      <span className="font-semibold">OBJ</span>
+                      <span className="text-[10px] text-slate-500">Wavefront</span>
+                    </a>
+                    <a
+                      href={api.getDownloadUrl(assetId, 'stl')}
+                      download={`${assetId}.stl`}
+                      className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-200 hover:text-slate-100"
+                    >
+                      <span className="font-semibold">STL</span>
+                      <span className="text-[10px] text-slate-500">3D Printing</span>
+                    </a>
+                    <div className="w-full h-px bg-slate-800 my-0.5" />
+                    <a
+                      href={api.getBundleUrl(assetId)}
+                      download={`PolyGen_${assetId}_bundle.zip`}
+                      className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 hover:bg-amber-500/25 transition-colors font-medium"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <Archive className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Bundle (.ZIP)</span>
+                      </div>
+                      <span className="text-[9px] text-amber-400 font-mono">ALL</span>
+                    </a>
+                    <div className="w-full h-px bg-slate-800 my-0.5" />
+                  </>
+                )}
+                <span className="text-[10px] uppercase font-bold text-cyan-400 px-2 py-1">Export Live Viewport Scene</span>
+                <button
+                  onClick={() => {
+                    handleClientExport('glb');
+                    setShowDownloadMenu(false);
+                  }}
+                  className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-200 hover:text-cyan-300 text-left cursor-pointer"
                 >
-                  <span className="font-semibold">GLB</span>
-                  <span className="text-[10px] text-slate-500">glTF Binary</span>
-                </a>
-                <a
-                  href={api.getDownloadUrl(assetId, 'obj')}
-                  download={`${assetId}.obj`}
-                  className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-200 hover:text-slate-100"
+                  <span className="font-semibold">Live GLB</span>
+                  <span className="text-[9px] text-cyan-400">Client Gen</span>
+                </button>
+                <button
+                  onClick={() => {
+                    handleClientExport('obj');
+                    setShowDownloadMenu(false);
+                  }}
+                  className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-200 hover:text-cyan-300 text-left cursor-pointer"
                 >
-                  <span className="font-semibold">OBJ</span>
-                  <span className="text-[10px] text-slate-500">Wavefront</span>
-                </a>
-                <a
-                  href={api.getDownloadUrl(assetId, 'stl')}
-                  download={`${assetId}.stl`}
-                  className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-200 hover:text-slate-100"
+                  <span className="font-semibold">Live OBJ</span>
+                  <span className="text-[9px] text-slate-500">Wavefront</span>
+                </button>
+                <button
+                  onClick={() => {
+                    handleClientExport('stl');
+                    setShowDownloadMenu(false);
+                  }}
+                  className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-200 hover:text-cyan-300 text-left cursor-pointer"
                 >
-                  <span className="font-semibold">STL</span>
-                  <span className="text-[10px] text-slate-500">3D Printing</span>
-                </a>
-                <div className="w-full h-px bg-slate-800 my-0.5" />
-                <a
-                  href={api.getBundleUrl(assetId)}
-                  download={`PolyGen_${assetId}_bundle.zip`}
-                  className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 hover:bg-amber-500/25 transition-colors font-medium"
-                >
-                  <div className="flex items-center gap-1.5">
-                    <Archive className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Bundle (.ZIP)</span>
-                  </div>
-                  <span className="text-[9px] text-amber-400 font-mono">ALL</span>
-                </a>
+                  <span className="font-semibold">Live STL</span>
+                  <span className="text-[9px] text-slate-500">3D Print</span>
+                </button>
               </div>
             )}
           </div>
@@ -976,11 +1230,32 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           </div>
         )}
 
+        {/* VIEWPORT HOTKEY & MODE HUD */}
+        <div className="absolute top-4 left-20 z-20 hidden md:flex items-center gap-2 px-3 py-1 bg-slate-950/85 backdrop-blur-md border border-slate-800/80 rounded-xl text-[10px] text-slate-400 font-mono shadow-xl">
+          <span className="text-cyan-400 font-bold uppercase tracking-wider">{activeTool}</span>
+          <span className="text-slate-700">|</span>
+          <span className="text-slate-300 flex items-center gap-1">
+            <kbd className="px-1 py-0.5 rounded bg-slate-800 text-[9px] text-slate-200 border border-slate-700 font-mono">G</kbd> Move
+          </span>
+          <span className="text-slate-300 flex items-center gap-1">
+            <kbd className="px-1 py-0.5 rounded bg-slate-800 text-[9px] text-slate-200 border border-slate-700 font-mono">R</kbd> Rotate
+          </span>
+          <span className="text-slate-300 flex items-center gap-1">
+            <kbd className="px-1 py-0.5 rounded bg-slate-800 text-[9px] text-slate-200 border border-slate-700 font-mono">S</kbd> Scale
+          </span>
+          <span className="text-slate-300 flex items-center gap-1">
+            <kbd className="px-1 py-0.5 rounded bg-slate-800 text-[9px] text-slate-200 border border-slate-700 font-mono">E</kbd> Explode
+          </span>
+          <span className="text-slate-300 flex items-center gap-1">
+            <kbd className="px-1 py-0.5 rounded bg-slate-800 text-[9px] text-slate-200 border border-slate-700 font-mono">Space</kbd> Spin
+          </span>
+        </div>
+
         {/* LEFT FLOATING MIXAR TOOLBAR */}
         <div className="absolute left-4 top-4 z-20 flex flex-col gap-1 p-1 bg-slate-950/85 backdrop-blur-md border border-slate-800/80 rounded-xl shadow-2xl text-slate-400">
           <button
             onClick={() => handleToolClick('select')}
-            title="Box Select (Toggle Bounding Box)"
+            title="Box Select (Toggle Bounding Box) [Q]"
             className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
               activeTool === 'select'
                 ? 'bg-lime-500 text-slate-950 font-bold shadow-md shadow-lime-500/20'
@@ -993,10 +1268,10 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
 
           <button
             onClick={() => handleToolClick('move')}
-            title="Translate / Move Object"
+            title="Translate / Move Object [G]"
             className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
               activeTool === 'move'
-                ? 'bg-lime-500 text-slate-950 font-bold'
+                ? 'bg-lime-500 text-slate-950 font-bold shadow-md shadow-lime-500/20'
                 : 'hover:bg-slate-800 hover:text-slate-200'
             }`}
           >
@@ -1006,10 +1281,10 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
 
           <button
             onClick={() => handleToolClick('rotate')}
-            title="Rotate 45°"
+            title="Rotate Object [R]"
             className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
               activeTool === 'rotate'
-                ? 'bg-lime-500 text-slate-950 font-bold'
+                ? 'bg-lime-500 text-slate-950 font-bold shadow-md shadow-lime-500/20'
                 : 'hover:bg-slate-800 hover:text-slate-200'
             }`}
           >
@@ -1019,10 +1294,10 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
 
           <button
             onClick={() => handleToolClick('scale')}
-            title="Cycle Scale"
+            title="Scale Object [S]"
             className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
               activeTool === 'scale'
-                ? 'bg-lime-500 text-slate-950 font-bold'
+                ? 'bg-lime-500 text-slate-950 font-bold shadow-md shadow-lime-500/20'
                 : 'hover:bg-slate-800 hover:text-slate-200'
             }`}
           >
@@ -1031,16 +1306,25 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           </button>
 
           <button
-            onClick={() => handleToolClick('transform')}
-            title="Reset Position / Rotation"
+            onClick={() => handleToolClick('explode')}
+            title="Explode / Disassemble Submeshes [E]"
             className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
-              activeTool === 'transform'
-                ? 'bg-lime-500 text-slate-950 font-bold'
+              activeTool === 'explode'
+                ? 'bg-amber-400 text-slate-950 font-bold shadow-md shadow-amber-400/20'
                 : 'hover:bg-slate-800 hover:text-slate-200'
             }`}
           >
+            <Layers className="w-4 h-4" />
+            <span className="text-[8px]">Explode</span>
+          </button>
+
+          <button
+            onClick={() => handleToolClick('transform')}
+            title="Reset Position / Rotation to Origin"
+            className="p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] hover:bg-slate-800 hover:text-slate-200"
+          >
             <Sliders className="w-4 h-4" />
-            <span className="text-[8px]">Transform</span>
+            <span className="text-[8px]">Reset</span>
           </button>
 
           <button
@@ -1056,6 +1340,45 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
             <span className="text-[8px]">Measure</span>
           </button>
         </div>
+
+        {/* EXPLODE SUBMESH SLIDER OVERLAY */}
+        {activeTool === 'explode' && (
+          <div className="absolute left-20 top-20 z-20 p-3 rounded-2xl bg-slate-950/95 border border-amber-500/50 text-xs font-mono text-amber-300 backdrop-blur-md shadow-2xl flex flex-col gap-2 w-56">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-300 font-sans font-semibold flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-amber-400" />
+                Explode Assembly
+              </span>
+              <span className="font-bold text-amber-400">{Math.round(effectiveExplode * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={effectiveExplode}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                setLocalExplode(val);
+                onExplodeChange?.(val);
+              }}
+              className="w-full accent-amber-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+            />
+            <div className="flex items-center justify-between text-[10px] text-slate-500 font-sans">
+              <span>Packed</span>
+              <button
+                onClick={() => {
+                  setLocalExplode(0);
+                  onExplodeChange?.(0);
+                }}
+                className="text-amber-400/80 hover:text-amber-300 font-medium cursor-pointer"
+              >
+                Reset (0%)
+              </button>
+              <span>Disassembled</span>
+            </div>
+          </div>
+        )}
 
         {/* DIMENSIONS CALLOUT OVERLAY (when Measure tool active) */}
         {showDimensions && (
