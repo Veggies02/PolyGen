@@ -17,7 +17,8 @@ import {
   RotateCcw, 
   Move,
   RotateCw,
-  Scale
+  Scale,
+  Scissors
 } from 'lucide-react';
 import { MaterialShaderStudio } from '../studio/MaterialShaderStudio';
 
@@ -151,6 +152,105 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
               </button>
               <span>100% (Exploded)</span>
             </div>
+          </div>
+
+          {/* CAD Cross-Section Slicing Section */}
+          <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col gap-2.5">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-white flex items-center gap-1.5">
+                <Scissors className="w-3.5 h-3.5 text-cyan-400" />
+                CAD Cross-Section Slicing
+              </span>
+              <button
+                onClick={() =>
+                  options &&
+                  onOptionsChange?.({
+                    ...options,
+                    clipping: {
+                      enabled: !options.clipping?.enabled,
+                      axis: options.clipping?.axis || 'y',
+                      offset: options.clipping?.offset ?? 0.8,
+                      inverted: Boolean(options.clipping?.inverted),
+                      showPlane: options.clipping?.showPlane ?? true,
+                    },
+                  })
+                }
+                className={`px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider transition-colors cursor-pointer ${
+                  options?.clipping?.enabled
+                    ? 'bg-cyan-500 text-slate-950'
+                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                {options?.clipping?.enabled ? 'Active' : 'Off'}
+              </button>
+            </div>
+
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Dynamically slices geometry to inspect internal cavities, wall thicknesses, and hollow chambers.
+            </p>
+
+            {options && (
+              <>
+                {/* Axis Selector */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-slate-400">Axis:</span>
+                  {(['x', 'y', 'z'] as const).map((ax) => (
+                    <button
+                      key={ax}
+                      onClick={() =>
+                        onOptionsChange?.({
+                          ...options,
+                          clipping: {
+                            enabled: true,
+                            axis: ax,
+                            offset: options.clipping?.offset ?? 0.8,
+                            inverted: Boolean(options.clipping?.inverted),
+                            showPlane: options.clipping?.showPlane ?? true,
+                          },
+                        })
+                      }
+                      className={`flex-1 py-1 rounded-lg text-xs font-mono uppercase font-bold transition-all cursor-pointer ${
+                        (options.clipping?.axis || 'y') === ax
+                          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50'
+                          : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {ax}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Offset Slider */}
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center justify-between text-[10px] text-slate-400">
+                    <span>Slice Plane Offset</span>
+                    <span className="font-mono text-cyan-400 font-bold">
+                      {(options.clipping?.offset ?? 0.8).toFixed(2)}m
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={-3}
+                    max={3}
+                    step={0.05}
+                    value={options.clipping?.offset ?? 0.8}
+                    onChange={(e) =>
+                      onOptionsChange?.({
+                        ...options,
+                        clipping: {
+                          enabled: true,
+                          axis: options.clipping?.axis || 'y',
+                          offset: Number(e.target.value),
+                          inverted: Boolean(options.clipping?.inverted),
+                          showPlane: options.clipping?.showPlane ?? true,
+                        },
+                      })
+                    }
+                    className="w-full accent-cyan-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           {/* Real-time Transform Coordinates Readout */}

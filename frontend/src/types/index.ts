@@ -73,6 +73,14 @@ export interface MaterialCustomization {
   wireframeOverlay: boolean;
 }
 
+export interface ClippingOptions {
+  enabled: boolean;
+  axis: 'x' | 'y' | 'z';
+  offset: number;
+  inverted: boolean;
+  showPlane: boolean;
+}
+
 export interface ViewerOptions {
   wireframe: boolean;
   grid: boolean;
@@ -81,6 +89,8 @@ export interface ViewerOptions {
   lightingPreset: 'studio' | 'cyberpunk' | 'sunset' | 'space' | 'dramatic' | 'soft';
   backgroundColor: string;
   exposure: number;
+  cameraProjection?: 'perspective' | 'orthographic';
+  clipping?: ClippingOptions;
   materials?: MaterialCustomization;
 }
 

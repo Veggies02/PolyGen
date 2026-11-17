@@ -29,7 +29,8 @@ import {
   Archive,
   UploadCloud,
   Video,
-  Layers
+  Layers,
+  Scissors
 } from 'lucide-react';
 import { api } from '../../api/client';
 
@@ -71,6 +72,11 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   const gizmoCanvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const perspCameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const orthoCameraRef = useRef<THREE.OrthographicCamera | null>(null);
+  const activeCameraRef = useRef<THREE.Camera | null>(null);
+  const clipPlaneRef = useRef<THREE.Plane>(new THREE.Plane(new THREE.Vector3(0, -1, 0), 0.8));
+  const planeHelperRef = useRef<THREE.PlaneHelper | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const transformControlsRef = useRef<TransformControls | null>(null);
@@ -88,7 +94,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
 
   // Studio tabs and tools
   const [activeTab, setActiveTab] = useState<'modeling' | 'uv' | 'texturing'>('modeling');
-  const [activeTool, setActiveTool] = useState<'select' | 'move' | 'rotate' | 'scale' | 'transform' | 'measure' | 'explode'>('select');
+  const [activeTool, setActiveTool] = useState<'select' | 'move' | 'rotate' | 'scale' | 'transform' | 'measure' | 'explode' | 'section'>('select');
   const [objectMode, setObjectMode] = useState<'Object Mode' | 'Edit Mode' | 'Sculpt Mode'>('Object Mode');
   const [coordSystem, setCoordSystem] = useState<'Global' | 'Local'>('Global');
   const [showAddMenu, setShowAddMenu] = useState<boolean>(false);
@@ -122,9 +128,26 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     scene.background = new THREE.Color(options.backgroundColor || '#0c0e14');
     sceneRef.current = scene;
 
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-    camera.position.set(3.5, 2.8, 4.5);
-    cameraRef.current = camera;
+    const perspCamera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+    perspCamera.position.set(3.5, 2.8, 4.5);
+    cameraRef.current = perspCamera;
+    perspCameraRef.current = perspCamera;
+
+    const aspect = width / height;
+    const frustumSize = 4.5;
+    const orthoCamera = new THREE.OrthographicCamera(
+      (-frustumSize * aspect) / 2,
+      (frustumSize * aspect) / 2,
+      frustumSize / 2,
+      -frustumSize / 2,
+      0.1,
+      1000
+    );
+    orthoCamera.position.set(3.5, 2.8, 4.5);
+    orthoCameraRef.current = orthoCamera;
+
+    const initialCamera = options.cameraProjection === 'orthographic' ? orthoCamera : perspCamera;
+    activeCameraRef.current = initialCamera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     renderer.setSize(width, height);
@@ -133,12 +156,13 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     renderer.toneMappingExposure = options.exposure || 1.1;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.localClippingEnabled = true;
     rendererRef.current = renderer;
 
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
-    const controls = new OrbitControls(camera, renderer.domElement);
+    const controls = new OrbitControls(initialCamera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
     controls.maxPolarAngle = Math.PI / 2 + 0.08;
@@ -151,6 +175,12 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     grid.position.y = 0;
     scene.add(grid);
     gridHelperRef.current = grid;
+
+    // CAD Cross-Section Plane Helper
+    const planeHelper = new THREE.PlaneHelper(clipPlaneRef.current, 5, 0x06b6d4);
+    planeHelper.visible = Boolean(options.clipping?.enabled && options.clipping?.showPlane);
+    scene.add(planeHelper);
+    planeHelperRef.current = planeHelper;
 
     // Lights
     const lightsGroup = new THREE.Group();
@@ -168,7 +198,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     primitivesGroupRef.current = primitivesGroup;
 
     // Transform Controls for Interactive Viewport Manipulation
-    const transformControls = new TransformControls(camera, renderer.domElement);
+    const transformControls = new TransformControls(initialCamera, renderer.domElement);
     transformControls.size = 0.75;
     const transformHelper = transformControls.getHelper();
     scene.add(transformHelper);
@@ -206,9 +236,20 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       for (const entry of entries) {
         const w = entry.contentRect.width;
         const h = entry.contentRect.height;
-        if (w > 0 && h > 0 && cameraRef.current && rendererRef.current) {
-          cameraRef.current.aspect = w / h;
-          cameraRef.current.updateProjectionMatrix();
+        if (w > 0 && h > 0 && rendererRef.current) {
+          if (perspCameraRef.current) {
+            perspCameraRef.current.aspect = w / h;
+            perspCameraRef.current.updateProjectionMatrix();
+          }
+          if (orthoCameraRef.current) {
+            const asp = w / h;
+            const fSize = 4.5;
+            orthoCameraRef.current.left = (-fSize * asp) / 2;
+            orthoCameraRef.current.right = (fSize * asp) / 2;
+            orthoCameraRef.current.top = fSize / 2;
+            orthoCameraRef.current.bottom = -fSize / 2;
+            orthoCameraRef.current.updateProjectionMatrix();
+          }
           rendererRef.current.setSize(w, h);
         }
       }
@@ -221,8 +262,9 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       if (controlsRef.current) {
         controlsRef.current.update();
       }
-      if (rendererRef.current && sceneRef.current && cameraRef.current) {
-        rendererRef.current.render(sceneRef.current, cameraRef.current);
+      const cam = activeCameraRef.current || cameraRef.current;
+      if (rendererRef.current && sceneRef.current && cam) {
+        rendererRef.current.render(sceneRef.current, cam);
       }
       drawOrientationGizmo();
     };
@@ -233,6 +275,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       resizeObserver.disconnect();
       transformControls.dispose();
       scene.remove(transformHelper);
+      scene.remove(planeHelper);
       if (renderer.domElement && container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
@@ -370,6 +413,81 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     }
   }, [activeTool, coordSystem]);
 
+  // Camera Projection Switcher: Perspective (3D depth) vs Orthographic (CAD isometric)
+  useEffect(() => {
+    const isOrtho = options.cameraProjection === 'orthographic';
+    const targetCam = isOrtho ? orthoCameraRef.current : perspCameraRef.current;
+    if (!targetCam || !controlsRef.current) return;
+
+    const currentCam = activeCameraRef.current;
+    if (currentCam && currentCam !== targetCam) {
+      targetCam.position.copy(currentCam.position);
+      targetCam.quaternion.copy(currentCam.quaternion);
+    }
+
+    activeCameraRef.current = targetCam;
+    cameraRef.current = isOrtho ? (targetCam as any) : perspCameraRef.current;
+    controlsRef.current.object = targetCam;
+    controlsRef.current.update();
+  }, [options.cameraProjection]);
+
+  // CAD Cross-Section Clipping Effect
+  useEffect(() => {
+    const clip = options.clipping;
+    if (!clipPlaneRef.current || !modelGroupRef.current) return;
+
+    if (!clip || !clip.enabled) {
+      if (planeHelperRef.current) planeHelperRef.current.visible = false;
+      modelGroupRef.current.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          const mesh = child as THREE.Mesh;
+          if (Array.isArray(mesh.material)) {
+            mesh.material.forEach((m) => {
+              m.clippingPlanes = [];
+              m.needsUpdate = true;
+            });
+          } else if (mesh.material) {
+            mesh.material.clippingPlanes = [];
+            mesh.material.needsUpdate = true;
+          }
+        }
+      });
+      return;
+    }
+
+    const normal = new THREE.Vector3();
+    if (clip.axis === 'x') normal.set(-1, 0, 0);
+    else if (clip.axis === 'y') normal.set(0, -1, 0);
+    else normal.set(0, 0, -1);
+
+    if (clip.inverted) normal.negate();
+
+    clipPlaneRef.current.normal.copy(normal);
+    clipPlaneRef.current.constant = clip.offset;
+
+    if (planeHelperRef.current) {
+      planeHelperRef.current.visible = Boolean(clip.showPlane);
+      planeHelperRef.current.updateMatrixWorld();
+    }
+
+    modelGroupRef.current.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        if (Array.isArray(mesh.material)) {
+          mesh.material.forEach((m) => {
+            m.clippingPlanes = [clipPlaneRef.current];
+            m.clipShadows = true;
+            m.needsUpdate = true;
+          });
+        } else if (mesh.material) {
+          mesh.material.clippingPlanes = [clipPlaneRef.current];
+          mesh.material.clipShadows = true;
+          mesh.material.needsUpdate = true;
+        }
+      }
+    });
+  }, [options.clipping]);
+
   // Explode effect: Disassembles submeshes along radial vectors
   useEffect(() => {
     if (!modelGroupRef.current) return;
@@ -432,10 +550,25 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       setShowDimensions((prev) => !prev);
     } else if (tool === 'explode') {
       if (tc) tc.detach();
+    } else if (tool === 'section') {
+      if (tc) tc.detach();
+      if (!options.clipping?.enabled) {
+        onOptionsChange?.({
+          ...options,
+          clipping: {
+            enabled: true,
+            axis: 'y',
+            offset: 0.8,
+            inverted: false,
+            showPlane: true,
+            ...(options.clipping || {}),
+          },
+        });
+      }
     }
   };
 
-  // Keyboard Hotkeys: G (Grab/Move), R (Rotate), S (Scale), Q (Select), E (Explode), Space (Turntable)
+  // Keyboard Hotkeys: G (Grab/Move), R (Rotate), S (Scale), Q (Select), E (Explode), X (Section), C (Camera Projection), Space (Turntable)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
@@ -451,6 +584,11 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
         setActiveTool('select');
       } else if (e.key === 'e' || e.key === 'E') {
         setActiveTool((prev) => (prev === 'explode' ? 'select' : 'explode'));
+      } else if (e.key === 'x' || e.key === 'X') {
+        setActiveTool((prev) => (prev === 'section' ? 'select' : 'section'));
+      } else if (e.key === 'c' || e.key === 'C') {
+        const next = (options.cameraProjection || 'perspective') === 'perspective' ? 'orthographic' : 'perspective';
+        onOptionsChange?.({ ...options, cameraProjection: next });
       } else if (e.code === 'Space') {
         e.preventDefault();
         setIsPlaying((prev) => !prev);
@@ -1247,6 +1385,12 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
             <kbd className="px-1 py-0.5 rounded bg-slate-800 text-[9px] text-slate-200 border border-slate-700 font-mono">E</kbd> Explode
           </span>
           <span className="text-slate-300 flex items-center gap-1">
+            <kbd className="px-1 py-0.5 rounded bg-slate-800 text-[9px] text-slate-200 border border-slate-700 font-mono">X</kbd> Slice
+          </span>
+          <span className="text-slate-300 flex items-center gap-1">
+            <kbd className="px-1 py-0.5 rounded bg-slate-800 text-[9px] text-slate-200 border border-slate-700 font-mono">C</kbd> {options.cameraProjection === 'orthographic' ? 'Ortho' : 'Persp'}
+          </span>
+          <span className="text-slate-300 flex items-center gap-1">
             <kbd className="px-1 py-0.5 rounded bg-slate-800 text-[9px] text-slate-200 border border-slate-700 font-mono">Space</kbd> Spin
           </span>
         </div>
@@ -1319,6 +1463,19 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           </button>
 
           <button
+            onClick={() => handleToolClick('section')}
+            title="CAD Cross-Section Slice [X]"
+            className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
+              activeTool === 'section' || options.clipping?.enabled
+                ? 'bg-cyan-500 text-slate-950 font-bold shadow-md shadow-cyan-500/20'
+                : 'hover:bg-slate-800 hover:text-slate-200'
+            }`}
+          >
+            <Scissors className="w-4 h-4" />
+            <span className="text-[8px]">Section</span>
+          </button>
+
+          <button
             onClick={() => handleToolClick('transform')}
             title="Reset Position / Rotation to Origin"
             className="p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] hover:bg-slate-800 hover:text-slate-200"
@@ -1340,6 +1497,139 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
             <span className="text-[8px]">Measure</span>
           </button>
         </div>
+
+        {/* CROSS-SECTION CAD SLICING OVERLAY */}
+        {activeTool === 'section' && (
+          <div className="absolute left-20 top-24 z-20 p-3 rounded-2xl bg-slate-950/95 border border-cyan-500/50 text-xs font-mono text-cyan-300 backdrop-blur-md shadow-2xl flex flex-col gap-2.5 w-64 animate-fadeIn">
+            <div className="flex items-center justify-between">
+              <span className="text-white font-sans font-semibold flex items-center gap-1.5">
+                <Scissors className="w-3.5 h-3.5 text-cyan-400" />
+                CAD Cross-Section Slice
+              </span>
+              <button
+                onClick={() =>
+                  onOptionsChange?.({
+                    ...options,
+                    clipping: {
+                      enabled: !options.clipping?.enabled,
+                      axis: options.clipping?.axis || 'y',
+                      offset: options.clipping?.offset ?? 0.8,
+                      inverted: Boolean(options.clipping?.inverted),
+                      showPlane: options.clipping?.showPlane ?? true,
+                    },
+                  })
+                }
+                className={`px-2 py-0.5 rounded text-[10px] font-sans font-semibold uppercase tracking-wider transition-colors ${
+                  options.clipping?.enabled
+                    ? 'bg-cyan-500 text-slate-950'
+                    : 'bg-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                {options.clipping?.enabled ? 'Active' : 'Off'}
+              </button>
+            </div>
+
+            {/* Slicing Axis Selector: X / Y / Z */}
+            <div className="flex items-center gap-1.5 font-sans">
+              <span className="text-[10px] text-slate-400 mr-1">Axis:</span>
+              {(['x', 'y', 'z'] as const).map((ax) => (
+                <button
+                  key={ax}
+                  onClick={() =>
+                    onOptionsChange?.({
+                      ...options,
+                      clipping: {
+                        enabled: true,
+                        axis: ax,
+                        offset: options.clipping?.offset ?? 0.8,
+                        inverted: Boolean(options.clipping?.inverted),
+                        showPlane: options.clipping?.showPlane ?? true,
+                      },
+                    })
+                  }
+                  className={`flex-1 py-1 rounded-lg text-xs font-mono uppercase font-bold transition-all ${
+                    (options.clipping?.axis || 'y') === ax
+                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50'
+                      : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {ax}
+                </button>
+              ))}
+            </div>
+
+            {/* Offset Slider */}
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between text-[10px] text-slate-400">
+                <span>Slice Offset</span>
+                <span className="font-mono text-cyan-400 font-bold">
+                  {(options.clipping?.offset ?? 0.8).toFixed(2)}m
+                </span>
+              </div>
+              <input
+                type="range"
+                min={-3}
+                max={3}
+                step={0.05}
+                value={options.clipping?.offset ?? 0.8}
+                onChange={(e) =>
+                  onOptionsChange?.({
+                    ...options,
+                    clipping: {
+                      enabled: true,
+                      axis: options.clipping?.axis || 'y',
+                      offset: Number(e.target.value),
+                      inverted: Boolean(options.clipping?.inverted),
+                      showPlane: options.clipping?.showPlane ?? true,
+                    },
+                  })
+                }
+                className="w-full accent-cyan-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+              />
+            </div>
+
+            {/* Invert & Guide Options */}
+            <div className="flex items-center justify-between pt-1 border-t border-slate-800/80 text-[10px] font-sans">
+              <button
+                onClick={() =>
+                  onOptionsChange?.({
+                    ...options,
+                    clipping: {
+                      enabled: true,
+                      axis: options.clipping?.axis || 'y',
+                      offset: options.clipping?.offset ?? 0.8,
+                      inverted: !options.clipping?.inverted,
+                      showPlane: options.clipping?.showPlane ?? true,
+                    },
+                  })
+                }
+                className="text-slate-300 hover:text-cyan-300 transition-colors flex items-center gap-1"
+              >
+                <span>Flip Normal</span>
+                <span className="font-mono text-cyan-400">
+                  {options.clipping?.inverted ? '[Inverted]' : '[Normal]'}
+                </span>
+              </button>
+              <button
+                onClick={() =>
+                  onOptionsChange?.({
+                    ...options,
+                    clipping: {
+                      enabled: true,
+                      axis: options.clipping?.axis || 'y',
+                      offset: options.clipping?.offset ?? 0.8,
+                      inverted: Boolean(options.clipping?.inverted),
+                      showPlane: !(options.clipping?.showPlane ?? true),
+                    },
+                  })
+                }
+                className="text-slate-400 hover:text-white transition-colors"
+              >
+                {options.clipping?.showPlane ?? true ? 'Hide Plane' : 'Show Plane'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* EXPLODE SUBMESH SLIDER OVERLAY */}
         {activeTool === 'explode' && (
@@ -1428,6 +1718,20 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
               className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[9px] text-amber-400 hover:bg-slate-800 font-bold"
             >
               Iso
+            </button>
+            <button
+              onClick={() => {
+                const next = (options.cameraProjection || 'perspective') === 'perspective' ? 'orthographic' : 'perspective';
+                onOptionsChange?.({ ...options, cameraProjection: next });
+              }}
+              title="Toggle Camera Projection: Perspective (3D Depth) vs Orthographic (CAD Technical View) [C]"
+              className={`px-1.5 py-0.5 rounded border text-[9px] font-bold transition-all ${
+                options.cameraProjection === 'orthographic'
+                  ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-sm'
+                  : 'bg-slate-900 border-slate-800 text-cyan-400 hover:bg-slate-800'
+              }`}
+            >
+              {options.cameraProjection === 'orthographic' ? 'Ortho' : 'Persp'}
             </button>
             <button
               onClick={handleResetCamera}
