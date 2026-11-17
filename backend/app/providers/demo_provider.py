@@ -3,6 +3,7 @@ from typing import Callable, Awaitable, Optional, Dict, Any
 from .base import Base3DProvider
 from ..models.schemas import GenerationRequest, ProviderInfo
 from ..services.mesh_generator import ProceduralMeshFactory
+from mesh_processing.pipeline import MeshProcessingPipeline, PipelineConfig
 
 class DemoProvider(Base3DProvider):
     @property
@@ -24,7 +25,7 @@ class DemoProvider(Base3DProvider):
                 "Local procedural generation",
                 "Compliant glTF 2.0 binary output",
                 "Interactive topology & normals",
-                "Instant simulation with real geometry"
+                "Automatic UV unwrapping & PBR texturing"
             ],
             speed_estimate="~3-5 seconds"
         )
@@ -35,50 +36,72 @@ class DemoProvider(Base3DProvider):
         job_id: str,
         progress_callback: Optional[Callable[[int, str], Awaitable[None]]] = None
     ) -> Dict[str, Any]:
-        stages = [
-            (15, "Analyzing prompt semantics & geometric primitives..."),
-            (40, "Synthesizing spatial geometry & vertex cloud..."),
-            (70, "Computing surface topology, normals & winding order..."),
-            (90, "Assembling PBR material channels & glTF binary buffer..."),
-            (100, "Asset compilation complete!")
-        ]
+        # 1. Synthesize procedural geometry
+        if progress_callback:
+            await progress_callback(20, "Synthesizing spatial geometry & primitives...")
+        await asyncio.sleep(0.3)
 
-        for pct, stage_name in stages[:-1]:
-            if progress_callback:
-                await progress_callback(pct, stage_name)
-            await asyncio.sleep(0.7)  # Realistic simulation step
-
-        # Generate actual geometry
-        mesh = ProceduralMeshFactory.generate_by_prompt(
+        raw_mesh = ProceduralMeshFactory.generate_by_prompt(
             prompt=request.prompt,
             style=request.style,
             seed=request.seed
         )
 
-        glb_bytes = mesh.export_glb()
-        obj_str = mesh.export_obj()
-        stl_bytes = mesh.export_stl()
-
-        if progress_callback:
-            await progress_callback(100, "Asset compilation complete!")
-
         # Title heuristic
         words = [w for w in request.prompt.split() if len(w) > 3][:3]
         title = " ".join(words).title() if words else "Generated Asset"
+        full_title = f"{title} ({request.style.capitalize()})"
+
+        if progress_callback:
+            await progress_callback(40, "Validating geometry and topology...")
+        await asyncio.sleep(0.2)
+
+        # 2. Configure Unified Mesh Processing Pipeline
+        is_metallic_style = request.style.lower() in ["scifi", "cyberpunk"]
+        pipeline_config = PipelineConfig(
+            apply_texture=True,
+            use_calibration_texture=True,
+            texture_resolution=512,
+            uv_padding=2,
+            metallic_factor=0.4 if is_metallic_style else 0.1,
+            roughness_factor=0.35 if is_metallic_style else 0.7,
+            material_name=f"{title.replace(' ', '_')}_PBR_Material"
+        )
+
+        if progress_callback:
+            await progress_callback(60, "Computing automatic UV atlas & PBR texture mapping...")
+
+        # 3. Execute Full Pipeline: Validation -> UV Unwrapping -> Texture Mapping -> GLB Export
+        pipe_res = MeshProcessingPipeline.process_mesh(
+            mesh_source=raw_mesh,
+            config=pipeline_config,
+            title=full_title,
+        )
+
+        if not pipe_res.success:
+            err_msg = "; ".join(pipe_res.errors) if pipe_res.errors else "Unknown pipeline error"
+            raise RuntimeError(f"Mesh processing pipeline failed: {err_msg}")
+
+        if progress_callback:
+            await progress_callback(85, "Assembling PBR material channels & glTF binary buffer...")
+            await asyncio.sleep(0.1)
+
+        merged_attributes = {
+            "symmetry": request.symmetry,
+            "poly_budget": request.poly_budget,
+            "seed": request.seed,
+            "engine": "PolyGen Procedural Core + Unified Mesh Pipeline",
+            "is_demo": True,
+            **pipe_res.attributes
+        }
 
         return {
-            "title": f"{title} ({request.style.capitalize()})",
-            "glb_bytes": glb_bytes,
-            "obj_str": obj_str,
-            "stl_bytes": stl_bytes,
-            "poly_count": mesh.poly_count,
-            "vertex_count": mesh.vertex_count,
-            "tags": [request.style, "procedural", "demo-engine", f"budget-{request.poly_budget}"],
-            "attributes": {
-                "symmetry": request.symmetry,
-                "poly_budget": request.poly_budget,
-                "seed": request.seed,
-                "engine": "PolyGen Procedural v1.0",
-                "is_demo": True
-            }
+            "title": full_title,
+            "glb_bytes": pipe_res.glb_bytes,
+            "obj_str": pipe_res.obj_str,
+            "stl_bytes": pipe_res.stl_bytes,
+            "poly_count": pipe_res.poly_count,
+            "vertex_count": pipe_res.vertex_count,
+            "tags": [request.style, "procedural", "uv-mapped", "textured", f"budget-{request.poly_budget}"],
+            "attributes": merged_attributes
         }

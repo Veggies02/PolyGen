@@ -65,6 +65,8 @@ class JobManager:
         provider = self.get_provider(request.provider)
 
         async def update_progress(pct: int, stage_desc: str):
+            if job.status in ["completed", "failed"]:
+                return
             job.progress = pct
             job.current_stage = stage_desc
             job.status = "synthesizing" if pct < 50 else ("meshing" if pct < 80 else "texturing")

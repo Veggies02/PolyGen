@@ -17,6 +17,8 @@ venv/
 backend/storage/assets/*/*.glb
 backend/storage/assets/*/*.obj
 backend/storage/assets/*/*.stl
+backend/storage/assets/*/*.mtl
+backend/storage/assets/*/*.png
 
 # Environment
 .env

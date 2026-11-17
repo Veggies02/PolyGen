@@ -18,6 +18,20 @@ class AssetStorageService:
         if not self.metadata_file.exists():
             self._save_index([])
             self.seed_sample_assets()
+        else:
+            # Check if any indexed asset files exist on disk
+            index = self._load_index()
+            valid_entries = [
+                item for item in index
+                if isinstance(item, dict) and "id" in item and (self.base_dir / item["id"] / f"{item['id']}.glb").exists()
+            ]
+            if not valid_entries:
+                # Fresh clone with orphan index: reset index and seed fresh curated assets with real geometry
+                self._save_index([])
+                self.seed_sample_assets()
+            elif len(valid_entries) < len(index):
+                # Clean up phantom records where files were missing
+                self._save_index(valid_entries)
 
     def _load_index(self) -> List[Dict[str, Any]]:
         try:
@@ -91,12 +105,28 @@ class AssetStorageService:
         with open(stl_path, "wb") as f:
             f.write(stl_bytes)
 
+        # Write companion auxiliary files (e.g. material.mtl, material_0.png for OBJ)
+        aux_files = (attributes or {}).get("aux_files", {})
+        if isinstance(aux_files, dict):
+            for fname, fcontent in aux_files.items():
+                target_file = asset_dir / fname
+                if isinstance(fcontent, (bytes, bytearray)):
+                    with open(target_file, "wb") as f:
+                        f.write(fcontent)
+                elif isinstance(fcontent, str):
+                    with open(target_file, "w", encoding="utf-8") as f:
+                        f.write(fcontent)
+
         file_size = len(glb_bytes)
         formats = {
             "glb": f"/api/assets/{asset_id}/download/glb",
             "obj": f"/api/assets/{asset_id}/download/obj",
             "stl": f"/api/assets/{asset_id}/download/stl"
         }
+        if (asset_dir / "material.mtl").exists() or any(asset_dir.glob("*.mtl")):
+            formats["mtl"] = f"/api/assets/{asset_id}/download/mtl"
+        if (asset_dir / "material_0.png").exists() or any(asset_dir.glob("*.png")):
+            formats["png"] = f"/api/assets/{asset_id}/download/png"
 
         metadata = AssetMetadata(
             id=asset_id,
@@ -123,11 +153,30 @@ class AssetStorageService:
 
     def get_file_path(self, asset_id: str, fmt: str) -> Optional[Path]:
         fmt = fmt.lower()
-        if fmt not in ["glb", "obj", "stl"]:
+        if fmt not in ["glb", "obj", "stl", "mtl", "png"]:
             return None
         file_path = self.base_dir / asset_id / f"{asset_id}.{fmt}"
         if file_path.exists():
             return file_path
+        asset_folder = self.base_dir / asset_id
+        if not asset_folder.exists():
+            return None
+        # Check standard companion filenames
+        if fmt == "mtl":
+            alt = asset_folder / "material.mtl"
+            if alt.exists():
+                return alt
+            for p in asset_folder.glob("*.mtl"):
+                if p.exists():
+                    return p
+        if fmt == "png":
+            for candidate in ["material_0.png", "PolyGen_Material.png"]:
+                alt = asset_folder / candidate
+                if alt.exists():
+                    return alt
+            for p in asset_folder.glob("*.png"):
+                if p.exists():
+                    return p
         return None
 
     def seed_sample_assets(self):

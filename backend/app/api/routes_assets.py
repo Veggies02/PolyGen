@@ -30,7 +30,9 @@ async def download_asset(asset_id: str, fmt: str):
     media_types = {
         "glb": "model/gltf-binary",
         "obj": "text/plain",
-        "stl": "model/stl"
+        "stl": "model/stl",
+        "mtl": "text/plain",
+        "png": "image/png"
     }
 
     return FileResponse(
