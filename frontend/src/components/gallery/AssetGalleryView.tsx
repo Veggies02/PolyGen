@@ -15,7 +15,10 @@ import {
   Maximize2, 
   Grid,
   Archive,
-  Trash2
+  Trash2,
+  CheckSquare,
+  Check,
+  CheckCheck
 } from 'lucide-react';
 
 interface AssetGalleryViewProps {
@@ -23,6 +26,16 @@ interface AssetGalleryViewProps {
   onInspectAsset: (asset: Asset) => void;
   onDeleteAsset?: (assetId: string) => void;
 }
+
+const GENRES = ['all', 'scifi', 'cyberpunk', 'low-poly', 'realistic', 'organic'];
+
+// Category keyword mapping
+const CATEGORY_KEYWORDS: Record<string, string[]> = {
+  buildings: ['building', 'house', 'monolith', 'temple', 'station', 'laundry', 'pod', 'tower', 'architecture'],
+  vehicles: ['drone', 'car', 'vehicle', 'aircraft', 'ship', 'plane', 'speeder', 'thruster'],
+  props: ['crystal', 'gem', 'weapon', 'blaster', 'rifle', 'axe', 'sword', 'helmet', 'visor', 'core', 'gyro', 'relic'],
+  characters: ['character', 'mech', 'robot', 'warrior', 'exo', 'cyborg', 'humanoid', 'soldier'],
+};
 
 export const AssetGalleryView: React.FC<AssetGalleryViewProps> = ({ 
   assets, 
@@ -35,15 +48,48 @@ export const AssetGalleryView: React.FC<AssetGalleryViewProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<'all' | 'buildings' | 'vehicles' | 'props' | 'characters'>('all');
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [gridZoom, setGridZoom] = useState<number>(4);
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState<boolean>(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const genres = ['all', 'scifi', 'cyberpunk', 'low-poly', 'realistic', 'organic'];
+  const toggleSelectAsset = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
-  // Category keyword mapping
-  const categoryKeywords: Record<string, string[]> = {
-    buildings: ['building', 'house', 'monolith', 'temple', 'station', 'laundry', 'pod', 'tower', 'architecture'],
-    vehicles: ['drone', 'car', 'vehicle', 'aircraft', 'ship', 'plane', 'speeder', 'thruster'],
-    props: ['crystal', 'gem', 'weapon', 'blaster', 'rifle', 'axe', 'sword', 'helmet', 'visor', 'core', 'gyro', 'relic'],
-    characters: ['character', 'mech', 'robot', 'warrior', 'exo', 'cyborg', 'humanoid', 'soldier'],
+  const handleSelectAll = () => {
+    if (selectedIds.size === filteredAssets.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredAssets.map((a) => a.id)));
+    }
+  };
+
+  const handleBatchDownloadGlb = () => {
+    const targets = assets.filter((a) => selectedIds.has(a.id));
+    targets.forEach((a, idx) => {
+      setTimeout(() => {
+        const link = document.createElement('a');
+        link.href = api.getDownloadUrl(a.id, 'glb');
+        link.download = `${a.id}.glb`;
+        link.click();
+      }, idx * 250);
+    });
+  };
+
+  const handleBatchDownloadZip = () => {
+    const targets = assets.filter((a) => selectedIds.has(a.id));
+    targets.forEach((a, idx) => {
+      setTimeout(() => {
+        const link = document.createElement('a');
+        link.href = api.getBundleUrl(a.id);
+        link.download = `PolyGen_${a.id}_bundle.zip`;
+        link.click();
+      }, idx * 250);
+    });
   };
 
   const filteredAssets = useMemo(() => {
@@ -69,7 +115,7 @@ export const AssetGalleryView: React.FC<AssetGalleryViewProps> = ({
       // 4. Left Category Dock filter
       let matchesCategory = true;
       if (selectedCategory !== 'all') {
-        const keywords = categoryKeywords[selectedCategory] || [];
+        const keywords = CATEGORY_KEYWORDS[selectedCategory] || [];
         const fullText = `${asset.title} ${asset.prompt} ${asset.tags?.join(' ')}`.toLowerCase();
         matchesCategory = keywords.some((kw) => fullText.includes(kw));
       }
@@ -166,6 +212,32 @@ export const AssetGalleryView: React.FC<AssetGalleryViewProps> = ({
           </div>
 
           <div className="flex items-center gap-2.5">
+            {/* Multi-Select Toggle */}
+            <button
+              onClick={() => {
+                setIsMultiSelectMode((prev) => !prev);
+                if (isMultiSelectMode) setSelectedIds(new Set());
+              }}
+              className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                isMultiSelectMode
+                  ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-sm'
+                  : 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white hover:bg-slate-850'
+              }`}
+            >
+              <CheckSquare className="w-3.5 h-3.5" />
+              <span>Multi-Select</span>
+            </button>
+
+            {isMultiSelectMode && (
+              <button
+                onClick={handleSelectAll}
+                className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium flex items-center gap-1 transition-colors"
+              >
+                <CheckCheck className="w-3.5 h-3.5 text-amber-400" />
+                <span>{selectedIds.size === filteredAssets.length ? 'Deselect All' : 'Select All'}</span>
+              </button>
+            )}
+
             {/* Genre Dropdown */}
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300">
               <span className="text-slate-500">Genre:</span>
@@ -174,7 +246,7 @@ export const AssetGalleryView: React.FC<AssetGalleryViewProps> = ({
                 onChange={(e) => setSelectedGenre(e.target.value)}
                 className="bg-transparent text-slate-200 focus:outline-none capitalize font-medium cursor-pointer"
               >
-                {genres.map((g) => (
+                {GENRES.map((g) => (
                   <option key={g} value={g} className="bg-slate-900 text-slate-200">
                     {g === 'all' ? 'All Genres' : g}
                   </option>
@@ -228,46 +300,129 @@ export const AssetGalleryView: React.FC<AssetGalleryViewProps> = ({
             </div>
           ) : (
             <div className={`grid ${gridColsClass} gap-4`}>
-              {filteredAssets.map((asset) => (
-                <div
-                  key={asset.id}
-                  onClick={() => setSelectedAsset(asset)}
-                  className="group relative flex flex-col justify-between p-4 rounded-xl bg-slate-950 border border-slate-800/80 hover:border-amber-500/80 transition-all cursor-pointer shadow-lg hover:shadow-amber-500/10 min-h-[220px]"
-                >
-                  <div className="absolute top-3 left-3 z-10">
-                    <a
-                      href={api.getDownloadUrl(asset.id, 'glb')}
-                      download={`${asset.id}.glb`}
-                      onClick={(e) => e.stopPropagation()}
-                      className="p-1 rounded text-amber-400 hover:text-amber-300 transition-colors block"
-                      title="Quick Download GLB"
-                    >
-                      <Download className="w-4 h-4" />
-                    </a>
-                  </div>
-
-                  <span className="self-end text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400">
-                    {asset.style}
-                  </span>
-
-                  <div className="flex flex-col items-center justify-center my-auto w-full py-1">
-                    <AssetThumbnail asset={asset} />
-                  </div>
-
-                  <div>
-                    <h3 className="font-semibold text-xs text-white truncate group-hover:text-amber-300 transition-colors">
-                      {asset.title}
-                    </h3>
-                    <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono mt-1">
-                      <span>{asset.poly_count.toLocaleString()} F</span>
-                      <span>{(asset.file_size_bytes / 1024).toFixed(1)} KB</span>
+              {filteredAssets.map((asset) => {
+                const isSelected = selectedIds.has(asset.id);
+                return (
+                  <div
+                    key={asset.id}
+                    onClick={() => {
+                      if (isMultiSelectMode) {
+                        toggleSelectAsset(asset.id);
+                      } else {
+                        setSelectedAsset(asset);
+                      }
+                    }}
+                    className={`group relative flex flex-col justify-between p-4 rounded-xl bg-slate-950 border transition-all cursor-pointer shadow-lg min-h-[220px] ${
+                      isSelected
+                        ? 'border-amber-400 ring-2 ring-amber-400/40 shadow-amber-400/20'
+                        : 'border-slate-800/80 hover:border-amber-500/80 hover:shadow-amber-500/10'
+                    }`}
+                  >
+                    <div className="absolute top-3 left-3 z-10">
+                      {isMultiSelectMode ? (
+                        <div
+                          className={`w-6 h-6 rounded-lg flex items-center justify-center border transition-colors ${
+                            isSelected
+                              ? 'bg-amber-400 border-amber-300 text-slate-950 font-bold shadow-sm'
+                              : 'bg-slate-900 border-slate-700 text-slate-400'
+                          }`}
+                        >
+                          {isSelected ? <Check className="w-4 h-4 stroke-[3]" /> : null}
+                        </div>
+                      ) : (
+                        <a
+                          href={api.getDownloadUrl(asset.id, 'glb')}
+                          download={`${asset.id}.glb`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-1 rounded text-amber-400 hover:text-amber-300 transition-colors block"
+                          title="Quick Download GLB"
+                        >
+                          <Download className="w-4 h-4" />
+                        </a>
+                      )}
                     </div>
+
+                    <span className="self-end text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400">
+                      {asset.style}
+                    </span>
+
+                    <div className="flex flex-col items-center justify-center my-auto w-full py-1">
+                      <AssetThumbnail asset={asset} />
+                    </div>
+
+                    <div>
+                      <h3 className="font-semibold text-xs text-white truncate group-hover:text-amber-300 transition-colors">
+                        {asset.title}
+                      </h3>
+                      <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono mt-1">
+                        <span>{asset.poly_count.toLocaleString()} F</span>
+                        <span>{(asset.file_size_bytes / 1024).toFixed(1)} KB</span>
+                      </div>
+                    </div>
+
+                    {/* Quick Hover Studio Action */}
+                    {!isMultiSelectMode && (
+                      <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-xs rounded-xl opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-3 z-20 pointer-events-none group-hover:pointer-events-auto">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onInspectAsset(asset);
+                          }}
+                          className="w-full py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-amber-400/20"
+                        >
+                          <Box className="w-3.5 h-3.5" />
+                          <span>Open in 3D Studio</span>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedAsset(asset);
+                          }}
+                          className="w-full py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium"
+                        >
+                          View Details
+                        </button>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
+
+        {/* FLOATING MULTI-SELECT BATCH ACTION BAR */}
+        {isMultiSelectMode && selectedIds.size > 0 && (
+          <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-40 px-4 py-2.5 bg-slate-950/95 border border-amber-500/60 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-3 text-xs animate-fadeIn">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-amber-400 text-slate-950 font-bold text-[11px] flex items-center justify-center">
+                {selectedIds.size}
+              </span>
+              <span className="font-semibold text-slate-200">Selected</span>
+            </div>
+            <div className="h-4 w-px bg-slate-800" />
+            <button
+              onClick={handleBatchDownloadGlb}
+              className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold flex items-center gap-1.5 shadow-sm transition-all"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export GLBs</span>
+            </button>
+            <button
+              onClick={handleBatchDownloadZip}
+              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 flex items-center gap-1.5 transition-all"
+            >
+              <Archive className="w-3.5 h-3.5 text-amber-400" />
+              <span>Export ZIP Bundles</span>
+            </button>
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              className="text-slate-400 hover:text-slate-200 px-2 py-1 transition-colors"
+            >
+              Clear
+            </button>
+          </div>
+        )}
 
         {/* STATUS BAR */}
         <div className="h-10 px-6 bg-slate-950 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400 shrink-0">

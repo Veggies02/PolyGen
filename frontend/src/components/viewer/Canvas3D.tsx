@@ -32,10 +32,30 @@ import {
   Scissors,
   MapPin,
   Crosshair,
-  Trash2
+  Trash2,
+  Sun
 } from 'lucide-react';
 import { api } from '../../api/client';
 import type { ViewerOptions, TransformData, ModelAnnotation, MeasurementData } from '../../types';
+
+function createProceduralMatcapTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const grad = ctx.createRadialGradient(96, 80, 8, 128, 128, 128);
+    grad.addColorStop(0, '#f8fafc');
+    grad.addColorStop(0.2, '#94a3b8');
+    grad.addColorStop(0.55, '#475569');
+    grad.addColorStop(0.85, '#0f172a');
+    grad.addColorStop(1, '#020617');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 256, 256);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  return tex;
+}
 
 interface Canvas3DProps {
   modelUrl?: string | null;
@@ -98,6 +118,8 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   const primitivesGroupRef = useRef<THREE.Group | null>(null);
   const measurementGroupRef = useRef<THREE.Group | null>(null);
   const annotationsGroupRef = useRef<THREE.Group | null>(null);
+  const wireframeOverlayGroupRef = useRef<THREE.Group | null>(null);
+  const matcapTextureRef = useRef<THREE.CanvasTexture | null>(null);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const lightsGroupRef = useRef<THREE.Group | null>(null);
   const boxHelperRef = useRef<THREE.BoxHelper | null>(null);
@@ -255,6 +277,11 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     scene.add(annotationsGroup);
     annotationsGroupRef.current = annotationsGroup;
 
+    // Wireframe Overlay Group (for superimposed topological wireframe cage)
+    const wireframeOverlayGroup = new THREE.Group();
+    scene.add(wireframeOverlayGroup);
+    wireframeOverlayGroupRef.current = wireframeOverlayGroup;
+
     // Pointer Raycasting for Measure & Annotation clicks
     let downX = 0;
     let downY = 0;
@@ -341,6 +368,11 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       if (controlsRef.current) {
         controlsRef.current.update();
       }
+      if (wireframeOverlayGroupRef.current && modelGroupRef.current) {
+        wireframeOverlayGroupRef.current.position.copy(modelGroupRef.current.position);
+        wireframeOverlayGroupRef.current.quaternion.copy(modelGroupRef.current.quaternion);
+        wireframeOverlayGroupRef.current.scale.copy(modelGroupRef.current.scale);
+      }
       const cam = activeCameraRef.current || cameraRef.current;
       if (rendererRef.current && sceneRef.current && cam) {
         rendererRef.current.render(sceneRef.current, cam);
@@ -375,6 +407,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       transformControls.dispose();
       scene.remove(transformHelper);
       scene.remove(planeHelper);
+      scene.remove(wireframeOverlayGroup);
       if (renderer.domElement && container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
@@ -747,6 +780,35 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     }
   }, [effectiveExplode]);
 
+  // Wireframe Topology Superimposition Overlay Effect
+  useEffect(() => {
+    if (!wireframeOverlayGroupRef.current || !modelGroupRef.current) return;
+    const group = wireframeOverlayGroupRef.current;
+    group.clear();
+
+    if (!options.wireframeOverlay) return;
+
+    modelGroupRef.current.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        const geom = mesh.geometry;
+        if (!geom) return;
+        const wireframeGeom = new THREE.WireframeGeometry(geom);
+        const wireframeMat = new THREE.LineBasicMaterial({
+          color: 0x06b6d4,
+          transparent: true,
+          opacity: 0.55,
+          depthTest: true,
+        });
+        const line = new THREE.LineSegments(wireframeGeom, wireframeMat);
+        line.position.copy(mesh.position);
+        line.quaternion.copy(mesh.quaternion);
+        line.scale.copy(mesh.scale);
+        group.add(line);
+      }
+    });
+  }, [options.wireframeOverlay, effectiveExplode]);
+
   // Left Tool Action Handlers
   const handleToolClick = (tool: typeof activeTool) => {
     setActiveTool(tool);
@@ -927,14 +989,21 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     const group = lightsGroupRef.current;
     group.clear();
 
+    const angle = options.lightAngle ?? 45;
+    const rad = (angle * Math.PI) / 180;
+    const keyX = Math.cos(rad) * 7.0;
+    const keyZ = Math.sin(rad) * 7.0;
+    const keyY = 6.5;
+
     if (options.lightingPreset === 'cyberpunk') {
       const ambient = new THREE.AmbientLight(0x0f172a, 0.8);
       group.add(ambient);
       const cyanKey = new THREE.DirectionalLight(0x00f0ff, 2.8);
-      cyanKey.position.set(5, 5, 4);
+      cyanKey.position.set(keyX, keyY, keyZ);
+      cyanKey.castShadow = true;
       group.add(cyanKey);
       const magentaRim = new THREE.DirectionalLight(0xec4899, 2.5);
-      magentaRim.position.set(-5, 3, -4);
+      magentaRim.position.set(-keyX, 3, -keyZ);
       group.add(magentaRim);
       const purpleFill = new THREE.PointLight(0x8b5cf6, 1.8, 12);
       purpleFill.position.set(0, -1, 3);
@@ -943,10 +1012,11 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       const ambient = new THREE.AmbientLight(0x451a03, 0.7);
       group.add(ambient);
       const amberKey = new THREE.DirectionalLight(0xfbbf24, 3.2);
-      amberKey.position.set(6, 4, 3);
+      amberKey.position.set(keyX, keyY, keyZ);
+      amberKey.castShadow = true;
       group.add(amberKey);
       const orangeFill = new THREE.DirectionalLight(0xf97316, 1.5);
-      orangeFill.position.set(-4, 2, -3);
+      orangeFill.position.set(-keyX * 0.7, 2, -keyZ * 0.7);
       group.add(orangeFill);
       const skyRim = new THREE.DirectionalLight(0x38bdf8, 0.8);
       skyRim.position.set(0, 5, -5);
@@ -955,26 +1025,28 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       const ambient = new THREE.AmbientLight(0x020617, 0.2);
       group.add(ambient);
       const starkDir = new THREE.DirectionalLight(0xf8fafc, 3.8);
-      starkDir.position.set(7, 8, 5);
+      starkDir.position.set(keyX, keyY, keyZ);
+      starkDir.castShadow = true;
       group.add(starkDir);
       const blueSpec = new THREE.DirectionalLight(0x38bdf8, 1.0);
-      blueSpec.position.set(-6, 2, -4);
+      blueSpec.position.set(-keyX * 0.8, 2, -keyZ * 0.8);
       group.add(blueSpec);
     } else {
       // Default Studio 3-Point
-      const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+      const ambient = new THREE.AmbientLight(0xffffff, 0.6);
       group.add(ambient);
-      const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
-      keyLight.position.set(5, 7, 5);
+      const keyLight = new THREE.DirectionalLight(0xffffff, 2.4);
+      keyLight.position.set(keyX, keyY, keyZ);
+      keyLight.castShadow = true;
       group.add(keyLight);
       const fillLight = new THREE.DirectionalLight(0x94a3b8, 1.2);
-      fillLight.position.set(-5, 3, 3);
+      fillLight.position.set(-keyX * 0.8, 3, keyZ * 0.5);
       group.add(fillLight);
       const rimLight = new THREE.DirectionalLight(0x38bdf8, 1.2);
       rimLight.position.set(0, 5, -5);
       group.add(rimLight);
     }
-  }, [options.lightingPreset]);
+  }, [options.lightingPreset, options.lightAngle]);
 
   // Update Background & Controls
   useEffect(() => {
@@ -1281,6 +1353,40 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           mesh.material = new THREE.MeshBasicMaterial({
             color: 0x00f0ff,
             wireframe: true,
+          });
+        } else if (options.shadingMode === 'albedo') {
+          const baseColor = origMat?.color ? origMat.color.clone() : new THREE.Color(0xffffff);
+          const map = origMat?.map || null;
+          mesh.material = new THREE.MeshBasicMaterial({
+            color: baseColor,
+            map: map,
+            wireframe: options.wireframe,
+          });
+        } else if (options.shadingMode === 'roughness') {
+          const r = origMat?.roughness !== undefined ? origMat.roughness : 0.5;
+          mesh.material = new THREE.MeshBasicMaterial({
+            color: new THREE.Color(r, r, r),
+            map: origMat?.roughnessMap || null,
+            wireframe: options.wireframe,
+          });
+        } else if (options.shadingMode === 'metalness') {
+          const m = origMat?.metalness !== undefined ? origMat.metalness : 0.0;
+          mesh.material = new THREE.MeshBasicMaterial({
+            color: new THREE.Color(m, m, m),
+            map: origMat?.metalnessMap || null,
+            wireframe: options.wireframe,
+          });
+        } else if (options.shadingMode === 'matcap') {
+          if (!matcapTextureRef.current) {
+            matcapTextureRef.current = createProceduralMatcapTexture();
+          }
+          mesh.material = new THREE.MeshMatcapMaterial({
+            matcap: matcapTextureRef.current,
+            wireframe: options.wireframe,
+          });
+        } else if (options.shadingMode === 'depth') {
+          mesh.material = new THREE.MeshDepthMaterial({
+            wireframe: options.wireframe,
           });
         } else {
           if (origMat) {
@@ -2195,6 +2301,19 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           </button>
 
           <button
+            onClick={() => onOptionsChange?.({ ...options, wireframeOverlay: !options.wireframeOverlay })}
+            title="Toggle Wireframe Edge Overlay on Shaded Geometry"
+            className={`px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all ${
+              options.wireframeOverlay
+                ? 'bg-emerald-950/80 border-emerald-500/60 text-emerald-300 shadow-sm'
+                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>Edges</span>
+          </button>
+
+          <button
             onClick={() => onOptionsChange?.({ ...options, grid: !options.grid })}
             className={`px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all ${
               options.grid
@@ -2218,6 +2337,22 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
             <span>360° Turntable</span>
           </button>
 
+          {/* Key Light Orbit Slider */}
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-400">
+            <Sun className="w-3.5 h-3.5 text-amber-400" />
+            <input
+              type="range"
+              min={0}
+              max={360}
+              step={5}
+              value={options.lightAngle ?? 45}
+              onChange={(e) => onOptionsChange?.({ ...options, lightAngle: Number(e.target.value) })}
+              className="w-16 accent-amber-400 cursor-pointer h-1 bg-slate-800 rounded-lg"
+              title={`Sun Orbit Angle: ${options.lightAngle ?? 45}°`}
+            />
+            <span className="font-mono text-[10px] text-amber-300 w-6">{options.lightAngle ?? 45}°</span>
+          </div>
+
           <select
             value={options.shadingMode}
             onChange={(e) => onOptionsChange?.({ ...options, shadingMode: e.target.value as any })}
@@ -2226,6 +2361,11 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
             <option value="pbr">PBR Shaded</option>
             <option value="clay">Clay Studio</option>
             <option value="normals">Normal Vectors</option>
+            <option value="albedo">Base Color (Albedo)</option>
+            <option value="roughness">Roughness Map</option>
+            <option value="metalness">Metalness Map</option>
+            <option value="matcap">Curvature Matcap</option>
+            <option value="depth">Z-Depth Gradient</option>
             <option value="wireframe">Cyber Mesh</option>
           </select>
         </div>

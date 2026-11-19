@@ -83,10 +83,12 @@ export interface ClippingOptions {
 
 export interface ViewerOptions {
   wireframe: boolean;
+  wireframeOverlay?: boolean;
   grid: boolean;
   autoRotate: boolean;
-  shadingMode: 'pbr' | 'clay' | 'normals' | 'wireframe';
+  shadingMode: 'pbr' | 'clay' | 'normals' | 'wireframe' | 'albedo' | 'roughness' | 'metalness' | 'matcap' | 'depth';
   lightingPreset: 'studio' | 'cyberpunk' | 'sunset' | 'space' | 'dramatic' | 'soft';
+  lightAngle?: number;
   backgroundColor: string;
   exposure: number;
   cameraProjection?: 'perspective' | 'orthographic';
