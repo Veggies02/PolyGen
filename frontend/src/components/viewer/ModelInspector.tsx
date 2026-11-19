@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { Asset, ViewerOptions, TransformData } from '../../types';
+import type { Asset, ViewerOptions, TransformData, ModelAnnotation, MeasurementData } from '../../types';
 import { api } from '../../api/client';
 import { 
   Download, 
@@ -18,7 +18,10 @@ import {
   Move,
   RotateCw,
   Scale,
-  Scissors
+  Scissors,
+  MapPin,
+  Crosshair,
+  Eye
 } from 'lucide-react';
 import { MaterialShaderStudio } from '../studio/MaterialShaderStudio';
 
@@ -38,6 +41,11 @@ interface ModelInspectorProps {
   explodeFactor?: number;
   onExplodeChange?: (factor: number) => void;
   onResetTransform?: () => void;
+  annotations?: ModelAnnotation[];
+  onAnnotationsChange?: (annotations: ModelAnnotation[]) => void;
+  onFocusAnnotation?: (annotation: ModelAnnotation) => void;
+  measurementData?: MeasurementData | null;
+  onResetMeasurement?: () => void;
 }
 
 export const ModelInspector: React.FC<ModelInspectorProps> = ({ 
@@ -50,9 +58,14 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
   transformData = { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] },
   explodeFactor = 0,
   onExplodeChange,
-  onResetTransform
+  onResetTransform,
+  annotations = [],
+  onAnnotationsChange,
+  onFocusAnnotation,
+  measurementData,
+  onResetMeasurement
 }) => {
-  const [activeTab, setActiveTab] = useState<'info' | 'shaders' | 'transforms'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'shaders' | 'transforms' | 'annotations'>('info');
 
   if (!asset) {
     return (
@@ -105,6 +118,22 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
         >
           <Sliders className="w-3.5 h-3.5 text-lime-400" />
           <span>Transform</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('annotations')}
+          className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+            activeTab === 'annotations'
+              ? 'bg-cyan-950/50 text-cyan-300 border border-cyan-500/40 shadow-sm'
+              : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <MapPin className="w-3.5 h-3.5 text-cyan-400" />
+          <span>Inspect</span>
+          {annotations.length > 0 && (
+            <span className="w-4 h-4 rounded-full bg-cyan-500 text-slate-950 text-[10px] font-bold flex items-center justify-center">
+              {annotations.length}
+            </span>
+          )}
         </button>
       </div>
 
@@ -310,6 +339,163 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
             <div className="text-[10px] text-slate-500 leading-normal">
               Use viewport gizmo handles or hotkeys (<kbd className="text-slate-300">G</kbd> Move, <kbd className="text-slate-300">R</kbd> Rotate, <kbd className="text-slate-300">S</kbd> Scale) to adjust coordinates interactively.
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'annotations' && (
+        <div className="flex flex-col gap-4">
+          {/* 3D Surface Caliper Card */}
+          <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col gap-2.5">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-white flex items-center gap-1.5">
+                <Crosshair className="w-3.5 h-3.5 text-cyan-400" />
+                Surface Caliper Measurement
+              </span>
+              {measurementData && (
+                <button
+                  onClick={onResetMeasurement}
+                  className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-rose-400 transition-colors"
+                  title="Clear measurement points"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Reset</span>
+                </button>
+              )}
+            </div>
+
+            {measurementData?.pointA ? (
+              <div className="flex flex-col gap-2 font-mono text-[11px]">
+                <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900 border border-slate-800">
+                  <span className="text-slate-400">Point A</span>
+                  <span className="text-cyan-300">
+                    [{measurementData.pointA.map((v) => v.toFixed(3)).join(', ')}]
+                  </span>
+                </div>
+                <div className="flex items-center justify-between p-2 rounded-lg bg-slate-900 border border-slate-800">
+                  <span className="text-slate-400">Point B</span>
+                  <span className="text-amber-300">
+                    {measurementData.pointB
+                      ? `[${measurementData.pointB.map((v) => v.toFixed(3)).join(', ')}]`
+                      : 'Click 2nd point on surface...'}
+                  </span>
+                </div>
+
+                {measurementData.distance != null && (
+                  <div className="p-2.5 rounded-xl bg-cyan-950/40 border border-cyan-500/40 flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-300 font-sans font-medium text-xs">Direct Distance:</span>
+                      <span className="text-cyan-300 font-bold text-sm">
+                        {measurementData.distance.toFixed(3)} m
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-sans">
+                      <span>Engineering Units:</span>
+                      <span className="font-semibold text-slate-200">
+                        {(measurementData.distance * 1000).toFixed(1)} mm
+                      </span>
+                    </div>
+                    {measurementData.delta && (
+                      <div className="grid grid-cols-3 gap-1 pt-1 border-t border-cyan-900/40 text-[10px] text-slate-400 text-center font-mono">
+                        <div>ΔX: {measurementData.delta.x.toFixed(3)}</div>
+                        <div>ΔY: {measurementData.delta.y.toFixed(3)}</div>
+                        <div>ΔZ: {measurementData.delta.z.toFixed(3)}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800/80 text-[11px] text-slate-400 font-sans leading-relaxed">
+                Press <kbd className="px-1 py-0.5 rounded bg-slate-800 text-[10px] text-slate-200 border border-slate-700 font-mono">M</kbd> or click <span className="text-lime-400 font-semibold">Measure</span> on the viewport toolbar, then click two points on the 3D surface to measure Euclidean distance.
+              </div>
+            )}
+          </div>
+
+          {/* 3D Pinpoints (Hotspots) Card */}
+          <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col gap-2.5">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-white flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-amber-400" />
+                Surface Hotspots & Notes
+              </span>
+              {annotations.length > 0 && (
+                <button
+                  onClick={() => onAnnotationsChange?.([])}
+                  className="flex items-center gap-1 text-[10px] text-slate-400 hover:text-rose-400 transition-colors"
+                  title="Clear all pinned annotations"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Clear All</span>
+                </button>
+              )}
+            </div>
+
+            {annotations.length === 0 ? (
+              <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800/80 text-[11px] text-slate-400 font-sans leading-relaxed">
+                Press <kbd className="px-1 py-0.5 rounded bg-slate-800 text-[10px] text-slate-200 border border-slate-700 font-mono">A</kbd> or click <span className="text-amber-400 font-semibold">Pinpoint</span> on the left toolbar, then click any mesh surface to pin an interactive 3D inspection mark.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {annotations.map((ann, idx) => (
+                  <div
+                    key={ann.id}
+                    className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-slate-700 flex flex-col gap-1.5 transition-all"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-4 h-4 rounded-full bg-amber-400 text-slate-950 font-bold text-[10px] flex items-center justify-center">
+                          {idx + 1}
+                        </span>
+                        <span className="font-semibold text-slate-200">{ann.title}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {onFocusAnnotation && (
+                          <button
+                            onClick={() => onFocusAnnotation(ann)}
+                            className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-400 transition-colors"
+                            title="Focus Camera on this Pin"
+                          >
+                            <Eye className="w-3 h-3" />
+                          </button>
+                        )}
+                        {onAnnotationsChange && (
+                          <button
+                            onClick={() => {
+                              const next = annotations.filter((a) => a.id !== ann.id);
+                              onAnnotationsChange(next);
+                            }}
+                            className="p-1 rounded bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 transition-colors"
+                            title="Delete Pin"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="text-[10px] text-slate-500 font-mono">
+                      Pos: [{ann.point.map((v) => v.toFixed(2)).join(', ')}] • {ann.createdAt}
+                    </div>
+
+                    {/* Editable comment */}
+                    <input
+                      type="text"
+                      value={ann.comment || ''}
+                      placeholder="Add CAD inspection note..."
+                      onChange={(e) => {
+                        if (!onAnnotationsChange) return;
+                        const next = annotations.map((a) =>
+                          a.id === ann.id ? { ...a, comment: e.target.value } : a
+                        );
+                        onAnnotationsChange(next);
+                      }}
+                      className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-800 text-[11px] text-slate-300 placeholder-slate-600 focus:outline-none focus:border-amber-500/50"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

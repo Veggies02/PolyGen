@@ -99,3 +99,22 @@ export interface TransformData {
   rotation: [number, number, number];
   scale: [number, number, number];
 }
+
+export interface ModelAnnotation {
+  id: string;
+  point: [number, number, number];
+  title: string;
+  comment?: string;
+  createdAt: string;
+}
+
+export interface MeasurementData {
+  pointA: [number, number, number] | null;
+  pointB: [number, number, number] | null;
+  distance: number | null;
+  delta: {
+    x: number;
+    y: number;
+    z: number;
+  } | null;
+}

@@ -1,5 +1,15 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import type { Asset, JobStatus, ProviderInfo, StatsOverview, GenerationSettings, ViewerOptions, TransformData } from './types';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import type { 
+  Asset, 
+  JobStatus, 
+  ProviderInfo, 
+  StatsOverview, 
+  GenerationSettings, 
+  ViewerOptions, 
+  TransformData,
+  ModelAnnotation,
+  MeasurementData 
+} from './types';
 import { api } from './api/client';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
@@ -58,6 +68,11 @@ export const App: React.FC = () => {
     scale: [1, 1, 1],
   });
   const [explodeFactor, setExplodeFactor] = useState<number>(0);
+
+  // 3D Viewport Annotations & Caliper Measurement State
+  const [annotations, setAnnotations] = useState<ModelAnnotation[]>([]);
+  const [measurementData, setMeasurementData] = useState<MeasurementData | null>(null);
+  const focusAnnotationRef = useRef<((ann: ModelAnnotation) => void) | null>(null);
 
   // 3D Viewer Configuration
   const [viewerOptions, setViewerOptions] = useState<ViewerOptions>({
@@ -334,6 +349,11 @@ export const App: React.FC = () => {
                   onTransformChange={setTransformData}
                   explodeFactor={explodeFactor}
                   onExplodeChange={setExplodeFactor}
+                  annotations={annotations}
+                  onAnnotationsChange={setAnnotations}
+                  measurementData={measurementData}
+                  onMeasurementChange={setMeasurementData}
+                  onFocusAnnotationRef={focusAnnotationRef}
                   isZenMode={isZenMode}
                   onToggleZenMode={() => setIsZenMode(!isZenMode)}
                   className="w-full h-full"
@@ -374,6 +394,11 @@ export const App: React.FC = () => {
                     transformData={transformData}
                     explodeFactor={explodeFactor}
                     onExplodeChange={setExplodeFactor}
+                    annotations={annotations}
+                    onAnnotationsChange={setAnnotations}
+                    onFocusAnnotation={(ann) => focusAnnotationRef.current?.(ann)}
+                    measurementData={measurementData}
+                    onResetMeasurement={() => setMeasurementData(null)}
                     onResetTransform={() => {
                       setTransformData({
                         position: [0, 0, 0],
