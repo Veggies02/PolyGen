@@ -57,6 +57,78 @@ function createProceduralMatcapTexture(): THREE.CanvasTexture {
   return tex;
 }
 
+const patternCache = new Map<string, THREE.CanvasTexture>();
+
+function getProceduralPatternTexture(pattern: string): THREE.CanvasTexture | null {
+  if (!pattern || pattern === 'none') return null;
+  if (patternCache.has(pattern)) return patternCache.get(pattern)!;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  if (pattern === 'checker') {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(0, 0, 64, 64);
+    ctx.fillRect(64, 64, 64, 64);
+  } else if (pattern === 'hex-armor') {
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 1.5;
+    const r = 18;
+    const a = (2 * Math.PI) / 6;
+    for (let x = -20; x < 150; x += 32) {
+      for (let y = -20; y < 150; y += 28) {
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          ctx.lineTo(x + r * Math.cos(a * i), y + r * Math.sin(a * i));
+        }
+        ctx.closePath();
+        ctx.stroke();
+      }
+    }
+  } else if (pattern === 'carbon-weave') {
+    ctx.fillStyle = '#09090b';
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.fillStyle = '#27272a';
+    for (let x = 0; x < 128; x += 16) {
+      for (let y = 0; y < 128; y += 16) {
+        if ((x / 16 + y / 16) % 2 === 0) {
+          ctx.fillRect(x, y, 16, 16);
+        }
+      }
+    }
+  } else if (pattern === 'tech-circuit') {
+    ctx.fillStyle = '#020617';
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.strokeStyle = '#06b6d4';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(10, 20); ctx.lineTo(50, 20); ctx.lineTo(70, 40); ctx.lineTo(120, 40);
+    ctx.moveTo(20, 100); ctx.lineTo(60, 100); ctx.lineTo(80, 80); ctx.lineTo(120, 80);
+    ctx.stroke();
+    ctx.fillStyle = '#06b6d4';
+    ctx.beginPath();
+    ctx.arc(10, 20, 3, 0, Math.PI * 2);
+    ctx.arc(120, 40, 3, 0, Math.PI * 2);
+    ctx.arc(20, 100, 3, 0, Math.PI * 2);
+    ctx.arc(120, 80, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(4, 4);
+  patternCache.set(pattern, tex);
+  return tex;
+}
+
 interface Canvas3DProps {
   modelUrl?: string | null;
   assetTitle?: string;
@@ -68,6 +140,8 @@ interface Canvas3DProps {
     vertexCount: number;
     dimensions: { x: number; y: number; z: number };
     materialCount: number;
+    surfaceArea?: number;
+    volume?: number;
   }) => void;
   onTransformChange?: (transform: TransformData) => void;
   explodeFactor?: number;
@@ -77,6 +151,7 @@ interface Canvas3DProps {
   measurementData?: MeasurementData | null;
   onMeasurementChange?: (measurement: MeasurementData | null) => void;
   onFocusAnnotationRef?: React.MutableRefObject<((ann: ModelAnnotation) => void) | null>;
+  captureSnapshotRef?: React.MutableRefObject<((options: { width: number; height: number; transparent: boolean; watermark: boolean }) => string) | null>;
   className?: string;
   isZenMode?: boolean;
   onToggleZenMode?: () => void;
@@ -97,6 +172,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   measurementData,
   onMeasurementChange,
   onFocusAnnotationRef,
+  captureSnapshotRef,
   className = '',
   isZenMode = false,
   onToggleZenMode,
@@ -761,6 +837,74 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     }
   }, [handleFocusAnnotation, onFocusAnnotationRef]);
 
+  // High-Resolution Snapshot Capture Engine
+  const captureHighResRender = useCallback((opts: { width: number; height: number; transparent: boolean; watermark: boolean }): string => {
+    if (!rendererRef.current || !sceneRef.current) return '';
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    const cam = activeCameraRef.current || cameraRef.current;
+    if (!cam) return '';
+
+    const { width, height, transparent, watermark } = opts;
+    const prevSize = new THREE.Vector2();
+    renderer.getSize(prevSize);
+    const prevClearColor = new THREE.Color();
+    renderer.getClearColor(prevClearColor);
+    const prevClearAlpha = renderer.getClearAlpha();
+    const prevBg = scene.background;
+
+    renderer.setSize(width, height, false);
+    if (transparent) {
+      scene.background = null;
+      renderer.setClearColor(0x000000, 0);
+    }
+
+    renderer.render(scene, cam);
+
+    let dataUrl = renderer.domElement.toDataURL('image/png');
+    if (watermark) {
+      const compCanvas = document.createElement('canvas');
+      compCanvas.width = width;
+      compCanvas.height = height;
+      const ctx = compCanvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(renderer.domElement, 0, 0);
+        const badgeW = 220;
+        const badgeH = 38;
+        const bx = width - badgeW - 20;
+        const by = height - badgeH - 20;
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.strokeStyle = 'rgba(245, 158, 11, 0.6)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(bx, by, badgeW, badgeH, 10);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.font = 'bold 14px sans-serif';
+        ctx.fillStyle = '#f59e0b';
+        ctx.fillText('PolyGen', bx + 16, by + 24);
+        ctx.font = '11px sans-serif';
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText('3D Studio • Core', bx + 84, by + 24);
+        dataUrl = compCanvas.toDataURL('image/png');
+      }
+    }
+
+    renderer.setSize(prevSize.x, prevSize.y, false);
+    scene.background = prevBg;
+    renderer.setClearColor(prevClearColor, prevClearAlpha);
+    renderer.render(scene, cam);
+
+    return dataUrl;
+  }, []);
+
+  useEffect(() => {
+    if (captureSnapshotRef) {
+      captureSnapshotRef.current = captureHighResRender;
+    }
+  }, [captureHighResRender, captureSnapshotRef]);
+
   // Explode effect: Disassembles submeshes along radial vectors
   useEffect(() => {
     if (!modelGroupRef.current) return;
@@ -1203,7 +1347,15 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
 
         let totalVertices = 0;
         let totalPolys = 0;
+        let totalSurfaceArea = 0;
+        let totalSignedVolume = 0;
         const materialsSet = new Set<string>();
+
+        const vA = new THREE.Vector3();
+        const vB = new THREE.Vector3();
+        const vC = new THREE.Vector3();
+        const cb = new THREE.Vector3();
+        const ab = new THREE.Vector3();
 
         object.traverse((child) => {
           if ((child as THREE.Mesh).isMesh) {
@@ -1213,13 +1365,30 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
 
             const geometry = mesh.geometry;
             if (geometry) {
-              if (geometry.index) {
-                totalPolys += geometry.index.count / 3;
-              } else if (geometry.attributes.position) {
-                totalPolys += geometry.attributes.position.count / 3;
+              const pos = geometry.attributes.position;
+              const idx = geometry.index;
+              if (idx) {
+                totalPolys += idx.count / 3;
+              } else if (pos) {
+                totalPolys += pos.count / 3;
               }
-              if (geometry.attributes.position) {
-                totalVertices += geometry.attributes.position.count;
+              if (pos) {
+                totalVertices += pos.count;
+                const triCount = idx ? idx.count / 3 : pos.count / 3;
+                for (let i = 0; i < triCount; i++) {
+                  const a = idx ? idx.getX(i * 3) : i * 3;
+                  const b = idx ? idx.getX(i * 3 + 1) : i * 3 + 1;
+                  const c = idx ? idx.getX(i * 3 + 2) : i * 3 + 2;
+                  vA.fromBufferAttribute(pos, a);
+                  vB.fromBufferAttribute(pos, b);
+                  vC.fromBufferAttribute(pos, c);
+
+                  cb.subVectors(vC, vB);
+                  ab.subVectors(vA, vB);
+                  cb.cross(ab);
+                  totalSurfaceArea += cb.length() * 0.5;
+                  totalSignedVolume += vA.dot(vB.cross(vC)) / 6.0;
+                }
               }
             }
 
@@ -1270,6 +1439,8 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
               z: Number(size.z.toFixed(2)),
             },
             materialCount: materialsSet.size,
+            surfaceArea: Number(totalSurfaceArea.toFixed(3)),
+            volume: Number(Math.abs(totalSignedVolume).toFixed(4)),
           });
         }
 
@@ -1322,17 +1493,28 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
 
         if (options.materials && options.materials.preset !== 'default') {
           const mat = options.materials;
+          const isGlass = mat.preset === 'frosted-glass' || mat.preset === 'emerald-gem';
           const physicalMat = new THREE.MeshPhysicalMaterial({
             color: new THREE.Color(mat.color),
             metalness: mat.metalness,
             roughness: mat.roughness,
             clearcoat: mat.clearcoat,
             clearcoatRoughness: 0.1,
+            transmission: mat.transmission ?? (mat.preset === 'frosted-glass' ? 0.92 : mat.preset === 'emerald-gem' ? 0.85 : 0),
+            ior: mat.ior ?? (mat.preset === 'frosted-glass' ? 1.52 : mat.preset === 'emerald-gem' ? 1.6 : 1.5),
+            thickness: isGlass || (mat.transmission && mat.transmission > 0) ? 1.2 : 0,
             wireframe: options.wireframe,
           });
           if (mat.emissiveIntensity > 0) {
             physicalMat.emissive = new THREE.Color(mat.emissiveColor || '#000000');
             physicalMat.emissiveIntensity = mat.emissiveIntensity;
+          }
+          if (mat.proceduralPattern && mat.proceduralPattern !== 'none') {
+            const patTex = getProceduralPatternTexture(mat.proceduralPattern);
+            if (patTex) {
+              physicalMat.map = patTex;
+              physicalMat.roughnessMap = patTex;
+            }
           }
           mesh.material = physicalMat;
           return;

@@ -21,7 +21,11 @@ import {
   Scissors,
   MapPin,
   Crosshair,
-  Eye
+  Eye,
+  Printer,
+  CheckCircle2,
+  AlertTriangle,
+  Activity
 } from 'lucide-react';
 import { MaterialShaderStudio } from '../studio/MaterialShaderStudio';
 
@@ -32,6 +36,8 @@ interface ModelInspectorProps {
     vertexCount: number;
     dimensions: { x: number; y: number; z: number };
     materialCount: number;
+    surfaceArea?: number;
+    volume?: number;
   };
   options?: ViewerOptions;
   onOptionsChange?: (options: ViewerOptions) => void;
@@ -559,6 +565,78 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
               <span className="text-xs font-mono text-slate-200">
                 {(asset.file_size_bytes / 1024).toFixed(1)} KB
               </span>
+            </div>
+
+            {/* Surface Area */}
+            <div className="p-2.5 rounded-lg bg-slate-800/40 border border-slate-800/80">
+              <div className="flex items-center gap-1.5 text-slate-400 mb-1">
+                <Activity className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-[10px] uppercase tracking-wider">Surface Area</span>
+              </div>
+              <span className="text-xs font-mono text-amber-300">
+                {liveStats?.surfaceArea != null ? `${liveStats.surfaceArea} m²` : '—'}
+              </span>
+            </div>
+
+            {/* Mesh Volume */}
+            <div className="p-2.5 rounded-lg bg-slate-800/40 border border-slate-800/80">
+              <div className="flex items-center gap-1.5 text-slate-400 mb-1">
+                <Printer className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-[10px] uppercase tracking-wider">Mesh Volume</span>
+              </div>
+              <span className="text-xs font-mono text-emerald-300">
+                {liveStats?.volume != null ? `${liveStats.volume} m³` : '—'}
+              </span>
+            </div>
+          </div>
+
+          {/* 3D Print Watertight Slicing Diagnostics */}
+          <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-white flex items-center gap-1.5">
+                <Printer className="w-3.5 h-3.5 text-cyan-400" />
+                3D Slicing & Print Diagnostics
+              </span>
+              {liveStats?.volume && liveStats.volume > 0.0001 ? (
+                <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-950/50 border border-emerald-500/40 px-2 py-0.5 rounded-full">
+                  <CheckCircle2 className="w-3 h-3" />
+                  Watertight
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-[10px] font-semibold text-amber-400 bg-amber-950/50 border border-amber-500/40 px-2 py-0.5 rounded-full">
+                  <AlertTriangle className="w-3 h-3" />
+                  Open Mesh Hull
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-slate-800/60">
+              <div>
+                <span className="text-slate-500 block text-[10px]">Print Material Vol:</span>
+                <span className="font-mono text-slate-200">
+                  {liveStats?.volume != null ? `${(liveStats.volume * 1000000).toFixed(1)} cm³` : 'N/A'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-500 block text-[10px]">Surface Area:</span>
+                <span className="font-mono text-slate-200">
+                  {liveStats?.surfaceArea != null ? `${(liveStats.surfaceArea * 10000).toFixed(1)} cm²` : 'N/A'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-500 block text-[10px]">A/V Ratio:</span>
+                <span className="font-mono text-slate-200">
+                  {liveStats?.surfaceArea && liveStats?.volume && liveStats.volume > 0
+                    ? `${(liveStats.surfaceArea / liveStats.volume).toFixed(1)} m⁻¹`
+                    : 'N/A'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-500 block text-[10px]">Slicer Compatibility:</span>
+                <span className="font-semibold text-cyan-300 text-[10px]">
+                  FDM / SLA Ready (STL)
+                </span>
+              </div>
             </div>
           </div>
 

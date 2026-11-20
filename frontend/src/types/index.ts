@@ -63,14 +63,17 @@ export interface GenerationSettings {
 }
 
 export interface MaterialCustomization {
-  preset: 'default' | 'titanium' | 'cyberpunk-neon' | 'obsidian' | 'gold' | 'iridescent' | 'matte-carbon';
+  preset: 'default' | 'titanium' | 'cyberpunk-neon' | 'obsidian' | 'gold' | 'iridescent' | 'matte-carbon' | 'frosted-glass' | 'emerald-gem' | 'hologram';
   color: string;
   metalness: number;
   roughness: number;
   emissiveColor: string;
   emissiveIntensity: number;
   clearcoat: number;
+  transmission?: number;
+  ior?: number;
   wireframeOverlay: boolean;
+  proceduralPattern?: 'none' | 'checker' | 'hex-armor' | 'carbon-weave' | 'tech-circuit';
 }
 
 export interface ClippingOptions {

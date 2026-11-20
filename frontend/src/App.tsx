@@ -19,6 +19,7 @@ import { PromptBox } from './components/studio/PromptBox';
 import { SettingsPanel } from './components/studio/SettingsPanel';
 import { JobProgressModal } from './components/studio/JobProgressModal';
 import { GenerationHistoryModal } from './components/studio/GenerationHistoryModal';
+import { RenderStudioModal } from './components/studio/RenderStudioModal';
 import { DashboardView } from './components/dashboard/DashboardView';
 import { AssetGalleryView } from './components/gallery/AssetGalleryView';
 import { PromptLabView } from './components/studio/PromptLabView';
@@ -45,6 +46,7 @@ export const App: React.FC = () => {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
   const [isConfigApiOpen, setIsConfigApiOpen] = useState<boolean>(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
+  const [isRenderStudioOpen, setIsRenderStudioOpen] = useState<boolean>(false);
   const [helpModalSection, setHelpModalSection] = useState<'guides' | 'faq' | 'support' | null>(null);
   const [isPlanModalOpen, setIsPlanModalOpen] = useState<boolean>(false);
 
@@ -54,6 +56,8 @@ export const App: React.FC = () => {
     vertexCount: number;
     dimensions: { x: number; y: number; z: number };
     materialCount: number;
+    surfaceArea?: number;
+    volume?: number;
   }>({
     polyCount: 0,
     vertexCount: 0,
@@ -73,6 +77,7 @@ export const App: React.FC = () => {
   const [annotations, setAnnotations] = useState<ModelAnnotation[]>([]);
   const [measurementData, setMeasurementData] = useState<MeasurementData | null>(null);
   const focusAnnotationRef = useRef<((ann: ModelAnnotation) => void) | null>(null);
+  const captureSnapshotRef = useRef<((options: { width: number; height: number; transparent: boolean; watermark: boolean }) => string) | null>(null);
 
   // 3D Viewer Configuration
   const [viewerOptions, setViewerOptions] = useState<ViewerOptions>({
@@ -109,6 +114,8 @@ export const App: React.FC = () => {
       if (e.key === 'Escape') {
         setIsCommandPaletteOpen(false);
         setIsConfigApiOpen(false);
+        setIsHistoryOpen(false);
+        setIsRenderStudioOpen(false);
         setHelpModalSection(null);
         setIsPlanModalOpen(false);
         if (isZenMode) {
@@ -354,6 +361,7 @@ export const App: React.FC = () => {
                   measurementData={measurementData}
                   onMeasurementChange={setMeasurementData}
                   onFocusAnnotationRef={focusAnnotationRef}
+                  captureSnapshotRef={captureSnapshotRef}
                   isZenMode={isZenMode}
                   onToggleZenMode={() => setIsZenMode(!isZenMode)}
                   className="w-full h-full"
@@ -408,15 +416,7 @@ export const App: React.FC = () => {
                       const resetBtn = document.querySelector('button[title*="Reset Position"]') as HTMLButtonElement;
                       if (resetBtn) resetBtn.click();
                     }}
-                    onCaptureSnapshot={() => {
-                      const canvas = document.querySelector('canvas');
-                      if (canvas) {
-                        const link = document.createElement('a');
-                        link.download = `PolyGen-Render-${(activeAsset?.title || 'Asset').replace(/\s+/g, '_')}-${Date.now()}.png`;
-                        link.href = canvas.toDataURL('image/png');
-                        link.click();
-                      }
-                    }}
+                    onCaptureSnapshot={() => setIsRenderStudioOpen(true)}
                   />
                 </div>
               )}
@@ -480,6 +480,20 @@ export const App: React.FC = () => {
       <PlanModal
         isOpen={isPlanModalOpen}
         onClose={() => setIsPlanModalOpen(false)}
+      />
+
+      {/* 4K High-Res Render Studio Modal */}
+      <RenderStudioModal
+        isOpen={isRenderStudioOpen}
+        onClose={() => setIsRenderStudioOpen(false)}
+        assetTitle={activeAsset?.title}
+        onCapture={(opts) => {
+          if (captureSnapshotRef.current) {
+            return captureSnapshotRef.current(opts);
+          }
+          const canvas = document.querySelector('canvas');
+          return canvas ? canvas.toDataURL('image/png') : null;
+        }}
       />
     </div>
   );
