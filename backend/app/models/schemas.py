@@ -25,7 +25,7 @@ class GenerationRequest(BaseModel):
     @field_validator("provider")
     @classmethod
     def validate_provider(cls, v: str) -> str:
-        allowed = {"demo", "tripo", "meshy"}
+        allowed = {"demo", "tripo", "meshy", "shape"}
         if v.lower() not in allowed:
             raise ValueError(f"Invalid provider '{v}'. Must be one of: {', '.join(sorted(allowed))}")
         return v.lower()

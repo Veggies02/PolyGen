@@ -7,6 +7,7 @@ from ..providers.base import Base3DProvider
 from ..providers.demo_provider import DemoProvider
 from ..providers.tripo_provider import Tripo3DProvider
 from ..providers.meshy_provider import MeshyProvider
+from ..providers.shape_provider import ShapEProvider
 from .storage import asset_storage
 
 class JobManager:
@@ -15,7 +16,8 @@ class JobManager:
         self.providers: Dict[str, Base3DProvider] = {
             "demo": DemoProvider(),
             "tripo": Tripo3DProvider(),
-            "meshy": MeshyProvider()
+            "meshy": MeshyProvider(),
+            "shape": ShapEProvider()
         }
 
     def get_provider(self, provider_id: str) -> Base3DProvider:

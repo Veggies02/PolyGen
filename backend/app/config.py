@@ -3,6 +3,10 @@ from pathlib import Path
 from pydantic import BaseModel
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+from dotenv import load_dotenv
+load_dotenv(BASE_DIR / ".env")
+
 STORAGE_DIR = BASE_DIR / "storage"
 ASSETS_DIR = STORAGE_DIR / "assets"
 ASSETS_DIR.mkdir(parents=True, exist_ok=True)
@@ -23,6 +27,8 @@ class Settings(BaseModel):
     TRIPO_API_KEY: str = os.getenv("TRIPO_API_KEY", "")
     MESHY_API_KEY: str = os.getenv("MESHY_API_KEY", "")
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    SHAPE_REMOTE_URL: str = os.getenv("SHAPE_REMOTE_URL", "")
+    SHAPE_API_TOKEN: str = os.getenv("SHAPE_API_TOKEN", "")
     
     # Security / CORS
     CORS_ORIGINS: list[str] = ["*"]
