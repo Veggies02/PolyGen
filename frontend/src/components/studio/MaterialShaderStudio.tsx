@@ -4,7 +4,11 @@ import {
   Palette, 
   Sun, 
   Camera, 
-  RotateCcw
+  RotateCcw,
+  Sparkles,
+  Layers,
+  Box,
+  Compass
 } from 'lucide-react';
 
 interface MaterialShaderStudioProps {
@@ -28,7 +32,10 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
     emissiveColor: '#000000',
     emissiveIntensity: 0.0,
     clearcoat: 0.0,
-    wireframeOverlay: false,
+    transmission: 0.0,
+    ior: 1.5,
+    wireframeOverlay: options.wireframeOverlay || false,
+    proceduralPattern: 'none',
   };
 
   const updateMaterial = (patch: Partial<MaterialCustomization>) => {
@@ -50,6 +57,9 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
     emissiveColor: string;
     emissiveIntensity: number;
     clearcoat: number;
+    transmission?: number;
+    ior?: number;
+    proceduralPattern?: MaterialCustomization['proceduralPattern'];
   }> = [
     {
       id: 'default',
@@ -60,6 +70,9 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
       emissiveColor: '#000000',
       emissiveIntensity: 0,
       clearcoat: 0,
+      transmission: 0,
+      ior: 1.5,
+      proceduralPattern: 'none',
     },
     {
       id: 'titanium',
@@ -70,6 +83,9 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
       emissiveColor: '#000000',
       emissiveIntensity: 0,
       clearcoat: 0.8,
+      transmission: 0,
+      ior: 1.5,
+      proceduralPattern: 'none',
     },
     {
       id: 'cyberpunk-neon',
@@ -80,6 +96,48 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
       emissiveColor: '#06b6d4',
       emissiveIntensity: 2.5,
       clearcoat: 0.4,
+      transmission: 0,
+      ior: 1.5,
+      proceduralPattern: 'none',
+    },
+    {
+      id: 'frosted-glass',
+      name: 'Frosted Glass',
+      color: '#ffffff',
+      metalness: 0.05,
+      roughness: 0.15,
+      emissiveColor: '#000000',
+      emissiveIntensity: 0,
+      clearcoat: 1.0,
+      transmission: 0.92,
+      ior: 1.52,
+      proceduralPattern: 'none',
+    },
+    {
+      id: 'emerald-gem',
+      name: 'Emerald Gem',
+      color: '#10b981',
+      metalness: 0.1,
+      roughness: 0.05,
+      emissiveColor: '#059669',
+      emissiveIntensity: 0.4,
+      clearcoat: 1.0,
+      transmission: 0.78,
+      ior: 1.58,
+      proceduralPattern: 'none',
+    },
+    {
+      id: 'hologram',
+      name: 'Cyber Hologram',
+      color: '#06b6d4',
+      metalness: 0.2,
+      roughness: 0.1,
+      emissiveColor: '#22d3ee',
+      emissiveIntensity: 2.2,
+      clearcoat: 0.8,
+      transmission: 0.65,
+      ior: 1.25,
+      proceduralPattern: 'tech-circuit',
     },
     {
       id: 'obsidian',
@@ -90,6 +148,9 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
       emissiveColor: '#10b981',
       emissiveIntensity: 0.5,
       clearcoat: 1.0,
+      transmission: 0,
+      ior: 1.5,
+      proceduralPattern: 'none',
     },
     {
       id: 'gold',
@@ -100,6 +161,9 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
       emissiveColor: '#d97706',
       emissiveIntensity: 0.2,
       clearcoat: 0.6,
+      transmission: 0,
+      ior: 1.5,
+      proceduralPattern: 'none',
     },
     {
       id: 'iridescent',
@@ -110,6 +174,9 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
       emissiveColor: '#a855f7',
       emissiveIntensity: 1.8,
       clearcoat: 0.9,
+      transmission: 0,
+      ior: 1.5,
+      proceduralPattern: 'none',
     },
     {
       id: 'matte-carbon',
@@ -120,7 +187,22 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
       emissiveColor: '#000000',
       emissiveIntensity: 0,
       clearcoat: 0.0,
+      transmission: 0,
+      ior: 1.5,
+      proceduralPattern: 'carbon-weave',
     },
+  ];
+
+  const proceduralPatterns: Array<{
+    id: NonNullable<MaterialCustomization['proceduralPattern']>;
+    label: string;
+    description: string;
+  }> = [
+    { id: 'none', label: 'Solid', description: 'Native GLB/Color' },
+    { id: 'checker', label: 'Studio Grid', description: 'Calibration check' },
+    { id: 'hex-armor', label: 'Hex Armor', description: 'Sci-fi plating' },
+    { id: 'carbon-weave', label: 'Carbon Weave', description: 'Composite weave' },
+    { id: 'tech-circuit', label: 'Tech Circuit', description: 'Cyber traces' },
   ];
 
   const lightingPresets: Array<{
@@ -161,7 +243,15 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
               emissiveColor: def.emissiveColor,
               emissiveIntensity: def.emissiveIntensity,
               clearcoat: def.clearcoat,
+              transmission: 0,
+              ior: 1.5,
               wireframeOverlay: false,
+              proceduralPattern: 'none',
+            });
+            onOptionsChange({
+              ...options,
+              wireframeOverlay: false,
+              lightAngle: 45,
             });
           }}
           className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
@@ -174,8 +264,9 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
 
       {/* 1. Quick Material Presets */}
       <div>
-        <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1.5">
-          PBR Shader Presets
+        <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1.5 flex items-center gap-1.5">
+          <Sparkles className="w-3 h-3 text-amber-400" />
+          PBR Shader & Refraction Presets
         </span>
         <div className="grid grid-cols-2 gap-1.5">
           {materialPresets.map((p) => (
@@ -190,6 +281,9 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
                   emissiveColor: p.emissiveColor,
                   emissiveIntensity: p.emissiveIntensity,
                   clearcoat: p.clearcoat,
+                  transmission: p.transmission ?? 0,
+                  ior: p.ior ?? 1.5,
+                  proceduralPattern: p.proceduralPattern || 'none',
                 });
               }}
               className={`p-2 rounded-xl text-left border transition-all flex items-center gap-2 ${
@@ -208,7 +302,34 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
         </div>
       </div>
 
-      {/* 2. Color & Swatches */}
+      {/* 2. Procedural Texture Pattern Overlay */}
+      <div>
+        <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1.5 flex items-center gap-1.5">
+          <Layers className="w-3 h-3 text-cyan-400" />
+          Procedural Texture Patterns
+        </span>
+        <div className="grid grid-cols-3 gap-1.5">
+          {proceduralPatterns.map((pat) => {
+            const isActive = (currentMaterial.proceduralPattern || 'none') === pat.id;
+            return (
+              <button
+                key={pat.id}
+                onClick={() => updateMaterial({ proceduralPattern: pat.id })}
+                className={`p-1.5 rounded-lg border text-center transition-all ${
+                  isActive
+                    ? 'bg-cyan-950/50 border-cyan-500/80 text-cyan-300 shadow-sm'
+                    : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                }`}
+                title={pat.description}
+              >
+                <div className="text-[10px] font-medium truncate">{pat.label}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 3. Base Color & Swatches */}
       <div>
         <span className="text-[10px] uppercase font-bold text-slate-500 block mb-1.5">
           Base Albedo Color
@@ -235,7 +356,7 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
         </div>
       </div>
 
-      {/* 3. PBR Sliders */}
+      {/* 4. Physical Material & Refractive Optics Controls */}
       <div className="space-y-3 p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
         {/* Metalness */}
         <div>
@@ -271,7 +392,7 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
           />
         </div>
 
-        {/* Clearcoat */}
+        {/* Clearcoat Gloss */}
         <div>
           <div className="flex items-center justify-between text-[11px] mb-1">
             <span className="text-slate-400">Clearcoat Gloss</span>
@@ -287,6 +408,42 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
             className="w-full accent-cyan-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
           />
         </div>
+
+        {/* Transmission (Glass & Gem Refraction) */}
+        <div>
+          <div className="flex items-center justify-between text-[11px] mb-1">
+            <span className="text-slate-400">Transmission (Refraction)</span>
+            <span className="font-mono text-emerald-400">{((currentMaterial.transmission || 0) * 100).toFixed(0)}%</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={currentMaterial.transmission || 0}
+            onChange={(e) => updateMaterial({ transmission: parseFloat(e.target.value), preset: 'default' })}
+            className="w-full accent-emerald-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
+          />
+        </div>
+
+        {/* Index of Refraction (IOR) */}
+        {(currentMaterial.transmission || 0) > 0 && (
+          <div>
+            <div className="flex items-center justify-between text-[11px] mb-1">
+              <span className="text-slate-400">Index of Refraction (IOR)</span>
+              <span className="font-mono text-emerald-400">{(currentMaterial.ior || 1.5).toFixed(2)}</span>
+            </div>
+            <input
+              type="range"
+              min={1.0}
+              max={2.4}
+              step={0.02}
+              value={currentMaterial.ior || 1.5}
+              onChange={(e) => updateMaterial({ ior: parseFloat(e.target.value), preset: 'default' })}
+              className="w-full accent-emerald-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
+            />
+          </div>
+        )}
 
         {/* Emissive Intensity */}
         <div>
@@ -313,17 +470,44 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
             />
           </div>
         </div>
+
+        {/* Wireframe Overlay Toggle */}
+        <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Box className="w-3.5 h-3.5 text-slate-400" />
+            <span className="text-slate-300 text-[11px]">Wireframe Topology Overlay</span>
+          </div>
+          <button
+            onClick={() => {
+              const nextVal = !(options.wireframeOverlay || currentMaterial.wireframeOverlay);
+              updateMaterial({ wireframeOverlay: nextVal });
+              onOptionsChange({ ...options, wireframeOverlay: nextVal });
+            }}
+            className={`w-9 h-5 rounded-full transition-colors relative p-0.5 ${
+              (options.wireframeOverlay || currentMaterial.wireframeOverlay) ? 'bg-amber-500' : 'bg-slate-800'
+            }`}
+          >
+            <div
+              className={`w-4 h-4 rounded-full bg-white transition-transform ${
+                (options.wireframeOverlay || currentMaterial.wireframeOverlay) ? 'translate-x-4' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </div>
       </div>
 
-      {/* 4. Studio Environment Lighting */}
+      {/* 5. Studio Environment Lighting & Sun Gizmo */}
       <div>
-        <div className="flex items-center gap-2 mb-2">
-          <Sun className="w-3.5 h-3.5 text-amber-400" />
-          <span className="text-[10px] uppercase font-bold text-slate-500">
-            Studio Lighting Environment
-          </span>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <Sun className="w-3.5 h-3.5 text-amber-400" />
+            <span className="text-[10px] uppercase font-bold text-slate-500">
+              Studio Lighting Environment
+            </span>
+          </div>
         </div>
-        <div className="grid grid-cols-2 gap-1.5">
+
+        <div className="grid grid-cols-2 gap-1.5 mb-2.5">
           {lightingPresets.map((l) => (
             <button
               key={l.id}
@@ -339,17 +523,37 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
             </button>
           ))}
         </div>
+
+        {/* Key Light Orbit Slider */}
+        <div className="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800/80">
+          <div className="flex items-center justify-between text-[11px] mb-1">
+            <span className="text-slate-400 flex items-center gap-1.5">
+              <Compass className="w-3 h-3 text-amber-400" />
+              Key Light Orbit Angle
+            </span>
+            <span className="font-mono text-amber-400">{Math.round(options.lightAngle ?? 45)}°</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={360}
+            step={5}
+            value={options.lightAngle ?? 45}
+            onChange={(e) => onOptionsChange({ ...options, lightAngle: parseFloat(e.target.value) })}
+            className="w-full accent-amber-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
+          />
+        </div>
       </div>
 
-      {/* 5. Snapshot & Capture Studio */}
+      {/* 6. Snapshot & Capture Studio */}
       <div className="pt-2 border-t border-slate-800">
         <button
           onClick={onCaptureSnapshot}
-          title={assetTitle ? `Capture render of ${assetTitle}` : 'Capture Viewport Render'}
+          title={assetTitle ? `Open Render Studio for ${assetTitle}` : 'Open Render Studio'}
           className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-500/10 active:scale-[0.99] transition-all"
         >
           <Camera className="w-4 h-4 fill-slate-950" />
-          <span>Capture 4K Viewport Render (.PNG)</span>
+          <span>Open High-Res Render Studio</span>
         </button>
       </div>
     </div>

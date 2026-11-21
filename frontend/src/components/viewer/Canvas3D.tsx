@@ -6,7 +6,6 @@ import { TransformControls } from 'three/examples/jsm/controls/TransformControls
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
-import type { ViewerOptions, TransformData } from '../../types';
 import { 
   Loader2, 
   AlertCircle, 
@@ -30,9 +29,105 @@ import {
   UploadCloud,
   Video,
   Layers,
-  Scissors
+  Scissors,
+  MapPin,
+  Crosshair,
+  Trash2,
+  Sun
 } from 'lucide-react';
 import { api } from '../../api/client';
+import type { ViewerOptions, TransformData, ModelAnnotation, MeasurementData } from '../../types';
+
+function createProceduralMatcapTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const grad = ctx.createRadialGradient(96, 80, 8, 128, 128, 128);
+    grad.addColorStop(0, '#f8fafc');
+    grad.addColorStop(0.2, '#94a3b8');
+    grad.addColorStop(0.55, '#475569');
+    grad.addColorStop(0.85, '#0f172a');
+    grad.addColorStop(1, '#020617');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 256, 256);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  return tex;
+}
+
+const patternCache = new Map<string, THREE.CanvasTexture>();
+
+function getProceduralPatternTexture(pattern: string): THREE.CanvasTexture | null {
+  if (!pattern || pattern === 'none') return null;
+  if (patternCache.has(pattern)) return patternCache.get(pattern)!;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  if (pattern === 'checker') {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(0, 0, 64, 64);
+    ctx.fillRect(64, 64, 64, 64);
+  } else if (pattern === 'hex-armor') {
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 1.5;
+    const r = 18;
+    const a = (2 * Math.PI) / 6;
+    for (let x = -20; x < 150; x += 32) {
+      for (let y = -20; y < 150; y += 28) {
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          ctx.lineTo(x + r * Math.cos(a * i), y + r * Math.sin(a * i));
+        }
+        ctx.closePath();
+        ctx.stroke();
+      }
+    }
+  } else if (pattern === 'carbon-weave') {
+    ctx.fillStyle = '#09090b';
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.fillStyle = '#27272a';
+    for (let x = 0; x < 128; x += 16) {
+      for (let y = 0; y < 128; y += 16) {
+        if ((x / 16 + y / 16) % 2 === 0) {
+          ctx.fillRect(x, y, 16, 16);
+        }
+      }
+    }
+  } else if (pattern === 'tech-circuit') {
+    ctx.fillStyle = '#020617';
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.strokeStyle = '#06b6d4';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(10, 20); ctx.lineTo(50, 20); ctx.lineTo(70, 40); ctx.lineTo(120, 40);
+    ctx.moveTo(20, 100); ctx.lineTo(60, 100); ctx.lineTo(80, 80); ctx.lineTo(120, 80);
+    ctx.stroke();
+    ctx.fillStyle = '#06b6d4';
+    ctx.beginPath();
+    ctx.arc(10, 20, 3, 0, Math.PI * 2);
+    ctx.arc(120, 40, 3, 0, Math.PI * 2);
+    ctx.arc(20, 100, 3, 0, Math.PI * 2);
+    ctx.arc(120, 80, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(4, 4);
+  patternCache.set(pattern, tex);
+  return tex;
+}
 
 interface Canvas3DProps {
   modelUrl?: string | null;
@@ -45,10 +140,18 @@ interface Canvas3DProps {
     vertexCount: number;
     dimensions: { x: number; y: number; z: number };
     materialCount: number;
+    surfaceArea?: number;
+    volume?: number;
   }) => void;
   onTransformChange?: (transform: TransformData) => void;
   explodeFactor?: number;
   onExplodeChange?: (factor: number) => void;
+  annotations?: ModelAnnotation[];
+  onAnnotationsChange?: (annotations: ModelAnnotation[]) => void;
+  measurementData?: MeasurementData | null;
+  onMeasurementChange?: (measurement: MeasurementData | null) => void;
+  onFocusAnnotationRef?: React.MutableRefObject<((ann: ModelAnnotation) => void) | null>;
+  captureSnapshotRef?: React.MutableRefObject<((options: { width: number; height: number; transparent: boolean; watermark: boolean }) => string) | null>;
   className?: string;
   isZenMode?: boolean;
   onToggleZenMode?: () => void;
@@ -64,6 +167,12 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   onTransformChange,
   explodeFactor = 0,
   onExplodeChange,
+  annotations,
+  onAnnotationsChange,
+  measurementData,
+  onMeasurementChange,
+  onFocusAnnotationRef,
+  captureSnapshotRef,
   className = '',
   isZenMode = false,
   onToggleZenMode,
@@ -83,6 +192,10 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   const transformHelperRef = useRef<THREE.Object3D | null>(null);
   const modelGroupRef = useRef<THREE.Group | null>(null);
   const primitivesGroupRef = useRef<THREE.Group | null>(null);
+  const measurementGroupRef = useRef<THREE.Group | null>(null);
+  const annotationsGroupRef = useRef<THREE.Group | null>(null);
+  const wireframeOverlayGroupRef = useRef<THREE.Group | null>(null);
+  const matcapTextureRef = useRef<THREE.CanvasTexture | null>(null);
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const lightsGroupRef = useRef<THREE.Group | null>(null);
   const boxHelperRef = useRef<THREE.BoxHelper | null>(null);
@@ -94,7 +207,10 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
 
   // Studio tabs and tools
   const [activeTab, setActiveTab] = useState<'modeling' | 'uv' | 'texturing'>('modeling');
-  const [activeTool, setActiveTool] = useState<'select' | 'move' | 'rotate' | 'scale' | 'transform' | 'measure' | 'explode' | 'section'>('select');
+  const [activeTool, setActiveTool] = useState<'select' | 'move' | 'rotate' | 'scale' | 'transform' | 'measure' | 'explode' | 'section' | 'annotate'>('select');
+  const activeToolRef = useRef(activeTool);
+  activeToolRef.current = activeTool;
+
   const [objectMode, setObjectMode] = useState<'Object Mode' | 'Edit Mode' | 'Sculpt Mode'>('Object Mode');
   const [coordSystem, setCoordSystem] = useState<'Global' | 'Local'>('Global');
   const [showAddMenu, setShowAddMenu] = useState<boolean>(false);
@@ -102,12 +218,42 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   const [showDownloadMenu, setShowDownloadMenu] = useState<boolean>(false);
   const [localExplode, setLocalExplode] = useState<number>(0);
   const effectiveExplode = explodeFactor !== undefined ? explodeFactor : localExplode;
+
+  // Annotations & Precision Caliper State
+  const [localAnnotations, setLocalAnnotations] = useState<ModelAnnotation[]>([]);
+  const effectiveAnnotations = annotations !== undefined ? annotations : localAnnotations;
+  const effectiveAnnotationsRef = useRef(effectiveAnnotations);
+  effectiveAnnotationsRef.current = effectiveAnnotations;
+
+  const [localMeasurement, setLocalMeasurement] = useState<MeasurementData | null>(null);
+  const effectiveMeasurement = measurementData !== undefined ? measurementData : localMeasurement;
+
+  const [measurePointA, setMeasurePointA] = useState<THREE.Vector3 | null>(null);
+  const [measurePointB, setMeasurePointB] = useState<THREE.Vector3 | null>(null);
+  const measurePointARef = useRef<THREE.Vector3 | null>(null);
+  const measurePointBRef = useRef<THREE.Vector3 | null>(null);
+
+  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
+  const [projectedAnnotations, setProjectedAnnotations] = useState<
+    Array<{ id: string; x: number; y: number; title: string; index: number; visible: boolean }>
+  >([]);
   
   // Animation / Turntable timeline
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentFrame, setCurrentFrame] = useState<number>(1);
   const [showDimensions, setShowDimensions] = useState<boolean>(false);
   const [liveBounds, setLiveBounds] = useState<{ x: number; y: number; z: number }>({ x: 1, y: 1, z: 1 });
+
+  // Sync external measurementData reset
+  useEffect(() => {
+    if (measurementData === null) {
+      setMeasurePointA(null);
+      setMeasurePointB(null);
+      measurePointARef.current = null;
+      measurePointBRef.current = null;
+      setLocalMeasurement(null);
+    }
+  }, [measurementData]);
 
   // Local File Import & Video Recording State
   const [importedModelUrl, setImportedModelUrl] = useState<string | null>(null);
@@ -197,6 +343,42 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     scene.add(primitivesGroup);
     primitivesGroupRef.current = primitivesGroup;
 
+    // Measurement Group (for 3D Caliper lines & locator spheres)
+    const measurementGroup = new THREE.Group();
+    scene.add(measurementGroup);
+    measurementGroupRef.current = measurementGroup;
+
+    // Annotations Group (for surface hotspot pins)
+    const annotationsGroup = new THREE.Group();
+    scene.add(annotationsGroup);
+    annotationsGroupRef.current = annotationsGroup;
+
+    // Wireframe Overlay Group (for superimposed topological wireframe cage)
+    const wireframeOverlayGroup = new THREE.Group();
+    scene.add(wireframeOverlayGroup);
+    wireframeOverlayGroupRef.current = wireframeOverlayGroup;
+
+    // Pointer Raycasting for Measure & Annotation clicks
+    let downX = 0;
+    let downY = 0;
+    let downTime = 0;
+
+    const onPointerDown = (e: PointerEvent) => {
+      downX = e.clientX;
+      downY = e.clientY;
+      downTime = Date.now();
+    };
+
+    const onPointerUp = (e: PointerEvent) => {
+      const dist = Math.hypot(e.clientX - downX, e.clientY - downY);
+      const duration = Date.now() - downTime;
+      if (dist > 5 || duration > 600) return;
+      handleRaycastClick(e);
+    };
+
+    renderer.domElement.addEventListener('pointerdown', onPointerDown);
+    renderer.domElement.addEventListener('pointerup', onPointerUp);
+
     // Transform Controls for Interactive Viewport Manipulation
     const transformControls = new TransformControls(initialCamera, renderer.domElement);
     transformControls.size = 0.75;
@@ -262,20 +444,46 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       if (controlsRef.current) {
         controlsRef.current.update();
       }
+      if (wireframeOverlayGroupRef.current && modelGroupRef.current) {
+        wireframeOverlayGroupRef.current.position.copy(modelGroupRef.current.position);
+        wireframeOverlayGroupRef.current.quaternion.copy(modelGroupRef.current.quaternion);
+        wireframeOverlayGroupRef.current.scale.copy(modelGroupRef.current.scale);
+      }
       const cam = activeCameraRef.current || cameraRef.current;
       if (rendererRef.current && sceneRef.current && cam) {
         rendererRef.current.render(sceneRef.current, cam);
       }
       drawOrientationGizmo();
+
+      // Screen space projections for 3D annotations
+      if (containerRef.current && effectiveAnnotationsRef.current.length > 0 && cam) {
+        const cw = containerRef.current.clientWidth;
+        const ch = containerRef.current.clientHeight;
+        const projected = effectiveAnnotationsRef.current.map((ann, idx) => {
+          const v = new THREE.Vector3(...ann.point).project(cam);
+          return {
+            id: ann.id,
+            x: ((v.x + 1) * cw) / 2,
+            y: ((-v.y + 1) * ch) / 2,
+            title: ann.title,
+            index: idx + 1,
+            visible: v.z < 1,
+          };
+        });
+        setProjectedAnnotations(projected);
+      }
     };
     animate();
 
     return () => {
       cancelAnimationFrame(animationId);
       resizeObserver.disconnect();
+      renderer.domElement.removeEventListener('pointerdown', onPointerDown);
+      renderer.domElement.removeEventListener('pointerup', onPointerUp);
       transformControls.dispose();
       scene.remove(transformHelper);
       scene.remove(planeHelper);
+      scene.remove(wireframeOverlayGroup);
       if (renderer.domElement && container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
@@ -488,6 +696,215 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     });
   }, [options.clipping]);
 
+  // Raycast Click Handler for Surface Measurement and 3D Annotation Pins
+  const handleRaycastClick = useCallback((e: PointerEvent) => {
+    if (!containerRef.current || !modelGroupRef.current) return;
+    const cam = activeCameraRef.current || cameraRef.current;
+    if (!cam) return;
+
+    if (activeToolRef.current !== 'measure' && activeToolRef.current !== 'annotate') return;
+
+    const rect = containerRef.current.getBoundingClientRect();
+    const mouse = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1
+    );
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(mouse, cam);
+    const intersects = raycaster.intersectObjects(modelGroupRef.current.children, true);
+
+    if (intersects.length === 0) return;
+    const hitPoint = intersects[0].point.clone();
+
+    if (activeToolRef.current === 'measure') {
+      if (!measurePointARef.current || (measurePointARef.current && measurePointBRef.current)) {
+        setMeasurePointA(hitPoint);
+        setMeasurePointB(null);
+        measurePointARef.current = hitPoint;
+        measurePointBRef.current = null;
+        const newMeas: MeasurementData = {
+          pointA: [Number(hitPoint.x.toFixed(3)), Number(hitPoint.y.toFixed(3)), Number(hitPoint.z.toFixed(3))],
+          pointB: null,
+          distance: null,
+          delta: null,
+        };
+        setLocalMeasurement(newMeas);
+        onMeasurementChange?.(newMeas);
+      } else {
+        const pA = measurePointARef.current;
+        const pB = hitPoint;
+        setMeasurePointB(pB);
+        measurePointBRef.current = pB;
+        const dist = pA.distanceTo(pB);
+        const newMeas: MeasurementData = {
+          pointA: [Number(pA.x.toFixed(3)), Number(pA.y.toFixed(3)), Number(pA.z.toFixed(3))],
+          pointB: [Number(pB.x.toFixed(3)), Number(pB.y.toFixed(3)), Number(pB.z.toFixed(3))],
+          distance: Number(dist.toFixed(3)),
+          delta: {
+            x: Number(Math.abs(pB.x - pA.x).toFixed(3)),
+            y: Number(Math.abs(pB.y - pA.y).toFixed(3)),
+            z: Number(Math.abs(pB.z - pA.z).toFixed(3)),
+          },
+        };
+        setLocalMeasurement(newMeas);
+        onMeasurementChange?.(newMeas);
+      }
+    } else if (activeToolRef.current === 'annotate') {
+      const newAnn: ModelAnnotation = {
+        id: `ann-${Date.now()}`,
+        point: [Number(hitPoint.x.toFixed(3)), Number(hitPoint.y.toFixed(3)), Number(hitPoint.z.toFixed(3))],
+        title: `Point #${effectiveAnnotationsRef.current.length + 1}`,
+        comment: 'CAD surface inspection mark',
+        createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      const updated = [...effectiveAnnotationsRef.current, newAnn];
+      setLocalAnnotations(updated);
+      onAnnotationsChange?.(updated);
+      setSelectedAnnotationId(newAnn.id);
+    }
+  }, [onMeasurementChange, onAnnotationsChange]);
+
+  // Visual Caliper Group Update Effect (Lines & Endpoint Spheres)
+  useEffect(() => {
+    if (!measurementGroupRef.current) return;
+    const group = measurementGroupRef.current;
+    group.clear();
+
+    if (measurePointA) {
+      const sA = new THREE.Mesh(
+        new THREE.SphereGeometry(0.045, 16, 16),
+        new THREE.MeshBasicMaterial({ color: 0x00f0ff })
+      );
+      sA.position.copy(measurePointA);
+      group.add(sA);
+    }
+
+    if (measurePointA && measurePointB) {
+      const sB = new THREE.Mesh(
+        new THREE.SphereGeometry(0.045, 16, 16),
+        new THREE.MeshBasicMaterial({ color: 0xf59e0b })
+      );
+      sB.position.copy(measurePointB);
+      group.add(sB);
+
+      const geom = new THREE.BufferGeometry().setFromPoints([measurePointA, measurePointB]);
+      const mat = new THREE.LineBasicMaterial({ color: 0x00f0ff, linewidth: 2 });
+      const line = new THREE.Line(geom, mat);
+      group.add(line);
+    }
+  }, [measurePointA, measurePointB]);
+
+  // Visual Annotations Pinpoints Update Effect
+  useEffect(() => {
+    if (!annotationsGroupRef.current) return;
+    const group = annotationsGroupRef.current;
+    group.clear();
+
+    effectiveAnnotations.forEach((ann) => {
+      const isSel = ann.id === selectedAnnotationId;
+      const sphere = new THREE.Mesh(
+        new THREE.SphereGeometry(0.04, 16, 16),
+        new THREE.MeshStandardMaterial({
+          color: isSel ? 0xf59e0b : 0x06b6d4,
+          emissive: isSel ? 0xf59e0b : 0x06b6d4,
+          emissiveIntensity: 0.6,
+          roughness: 0.2,
+        })
+      );
+      sphere.position.set(...ann.point);
+      group.add(sphere);
+    });
+  }, [effectiveAnnotations, selectedAnnotationId]);
+
+  // Smooth Camera Fly-to on Annotation Hotspot
+  const handleFocusAnnotation = useCallback((ann: ModelAnnotation) => {
+    if (!controlsRef.current) return;
+    const target = new THREE.Vector3(...ann.point);
+    const cam = activeCameraRef.current || cameraRef.current;
+    if (!cam) return;
+
+    controlsRef.current.target.copy(target);
+    const offset = cam.position.clone().sub(target).normalize().multiplyScalar(2.0);
+    cam.position.copy(target.clone().add(offset));
+    controlsRef.current.update();
+    setSelectedAnnotationId(ann.id);
+  }, []);
+
+  useEffect(() => {
+    if (onFocusAnnotationRef) {
+      onFocusAnnotationRef.current = handleFocusAnnotation;
+    }
+  }, [handleFocusAnnotation, onFocusAnnotationRef]);
+
+  // High-Resolution Snapshot Capture Engine
+  const captureHighResRender = useCallback((opts: { width: number; height: number; transparent: boolean; watermark: boolean }): string => {
+    if (!rendererRef.current || !sceneRef.current) return '';
+    const renderer = rendererRef.current;
+    const scene = sceneRef.current;
+    const cam = activeCameraRef.current || cameraRef.current;
+    if (!cam) return '';
+
+    const { width, height, transparent, watermark } = opts;
+    const prevSize = new THREE.Vector2();
+    renderer.getSize(prevSize);
+    const prevClearColor = new THREE.Color();
+    renderer.getClearColor(prevClearColor);
+    const prevClearAlpha = renderer.getClearAlpha();
+    const prevBg = scene.background;
+
+    renderer.setSize(width, height, false);
+    if (transparent) {
+      scene.background = null;
+      renderer.setClearColor(0x000000, 0);
+    }
+
+    renderer.render(scene, cam);
+
+    let dataUrl = renderer.domElement.toDataURL('image/png');
+    if (watermark) {
+      const compCanvas = document.createElement('canvas');
+      compCanvas.width = width;
+      compCanvas.height = height;
+      const ctx = compCanvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(renderer.domElement, 0, 0);
+        const badgeW = 220;
+        const badgeH = 38;
+        const bx = width - badgeW - 20;
+        const by = height - badgeH - 20;
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.strokeStyle = 'rgba(245, 158, 11, 0.6)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(bx, by, badgeW, badgeH, 10);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.font = 'bold 14px sans-serif';
+        ctx.fillStyle = '#f59e0b';
+        ctx.fillText('PolyGen', bx + 16, by + 24);
+        ctx.font = '11px sans-serif';
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText('3D Studio • Core', bx + 84, by + 24);
+        dataUrl = compCanvas.toDataURL('image/png');
+      }
+    }
+
+    renderer.setSize(prevSize.x, prevSize.y, false);
+    scene.background = prevBg;
+    renderer.setClearColor(prevClearColor, prevClearAlpha);
+    renderer.render(scene, cam);
+
+    return dataUrl;
+  }, []);
+
+  useEffect(() => {
+    if (captureSnapshotRef) {
+      captureSnapshotRef.current = captureHighResRender;
+    }
+  }, [captureHighResRender, captureSnapshotRef]);
+
   // Explode effect: Disassembles submeshes along radial vectors
   useEffect(() => {
     if (!modelGroupRef.current) return;
@@ -506,6 +923,35 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       boxHelperRef.current.update();
     }
   }, [effectiveExplode]);
+
+  // Wireframe Topology Superimposition Overlay Effect
+  useEffect(() => {
+    if (!wireframeOverlayGroupRef.current || !modelGroupRef.current) return;
+    const group = wireframeOverlayGroupRef.current;
+    group.clear();
+
+    if (!options.wireframeOverlay) return;
+
+    modelGroupRef.current.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        const geom = mesh.geometry;
+        if (!geom) return;
+        const wireframeGeom = new THREE.WireframeGeometry(geom);
+        const wireframeMat = new THREE.LineBasicMaterial({
+          color: 0x06b6d4,
+          transparent: true,
+          opacity: 0.55,
+          depthTest: true,
+        });
+        const line = new THREE.LineSegments(wireframeGeom, wireframeMat);
+        line.position.copy(mesh.position);
+        line.quaternion.copy(mesh.quaternion);
+        line.scale.copy(mesh.scale);
+        group.add(line);
+      }
+    });
+  }, [options.wireframeOverlay, effectiveExplode]);
 
   // Left Tool Action Handlers
   const handleToolClick = (tool: typeof activeTool) => {
@@ -547,7 +993,9 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       updateTransformTelemetry();
     } else if (tool === 'measure') {
       if (tc) tc.detach();
-      setShowDimensions((prev) => !prev);
+      setShowDimensions(true);
+    } else if (tool === 'annotate') {
+      if (tc) tc.detach();
     } else if (tool === 'explode') {
       if (tc) tc.detach();
     } else if (tool === 'section') {
@@ -568,7 +1016,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     }
   };
 
-  // Keyboard Hotkeys: G (Grab/Move), R (Rotate), S (Scale), Q (Select), E (Explode), X (Section), C (Camera Projection), Space (Turntable)
+  // Keyboard Hotkeys: G (Grab/Move), R (Rotate), S (Scale), Q (Select), E (Explode), X (Section), M (Measure), A (Annotate), C (Camera Projection), Space (Turntable)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
@@ -586,6 +1034,10 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
         setActiveTool((prev) => (prev === 'explode' ? 'select' : 'explode'));
       } else if (e.key === 'x' || e.key === 'X') {
         setActiveTool((prev) => (prev === 'section' ? 'select' : 'section'));
+      } else if (e.key === 'm' || e.key === 'M') {
+        setActiveTool((prev) => (prev === 'measure' ? 'select' : 'measure'));
+      } else if (e.key === 'a' || e.key === 'A') {
+        setActiveTool((prev) => (prev === 'annotate' ? 'select' : 'annotate'));
       } else if (e.key === 'c' || e.key === 'C') {
         const next = (options.cameraProjection || 'perspective') === 'perspective' ? 'orthographic' : 'perspective';
         onOptionsChange?.({ ...options, cameraProjection: next });
@@ -681,14 +1133,21 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     const group = lightsGroupRef.current;
     group.clear();
 
+    const angle = options.lightAngle ?? 45;
+    const rad = (angle * Math.PI) / 180;
+    const keyX = Math.cos(rad) * 7.0;
+    const keyZ = Math.sin(rad) * 7.0;
+    const keyY = 6.5;
+
     if (options.lightingPreset === 'cyberpunk') {
       const ambient = new THREE.AmbientLight(0x0f172a, 0.8);
       group.add(ambient);
       const cyanKey = new THREE.DirectionalLight(0x00f0ff, 2.8);
-      cyanKey.position.set(5, 5, 4);
+      cyanKey.position.set(keyX, keyY, keyZ);
+      cyanKey.castShadow = true;
       group.add(cyanKey);
       const magentaRim = new THREE.DirectionalLight(0xec4899, 2.5);
-      magentaRim.position.set(-5, 3, -4);
+      magentaRim.position.set(-keyX, 3, -keyZ);
       group.add(magentaRim);
       const purpleFill = new THREE.PointLight(0x8b5cf6, 1.8, 12);
       purpleFill.position.set(0, -1, 3);
@@ -697,10 +1156,11 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       const ambient = new THREE.AmbientLight(0x451a03, 0.7);
       group.add(ambient);
       const amberKey = new THREE.DirectionalLight(0xfbbf24, 3.2);
-      amberKey.position.set(6, 4, 3);
+      amberKey.position.set(keyX, keyY, keyZ);
+      amberKey.castShadow = true;
       group.add(amberKey);
       const orangeFill = new THREE.DirectionalLight(0xf97316, 1.5);
-      orangeFill.position.set(-4, 2, -3);
+      orangeFill.position.set(-keyX * 0.7, 2, -keyZ * 0.7);
       group.add(orangeFill);
       const skyRim = new THREE.DirectionalLight(0x38bdf8, 0.8);
       skyRim.position.set(0, 5, -5);
@@ -709,26 +1169,28 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       const ambient = new THREE.AmbientLight(0x020617, 0.2);
       group.add(ambient);
       const starkDir = new THREE.DirectionalLight(0xf8fafc, 3.8);
-      starkDir.position.set(7, 8, 5);
+      starkDir.position.set(keyX, keyY, keyZ);
+      starkDir.castShadow = true;
       group.add(starkDir);
       const blueSpec = new THREE.DirectionalLight(0x38bdf8, 1.0);
-      blueSpec.position.set(-6, 2, -4);
+      blueSpec.position.set(-keyX * 0.8, 2, -keyZ * 0.8);
       group.add(blueSpec);
     } else {
       // Default Studio 3-Point
-      const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+      const ambient = new THREE.AmbientLight(0xffffff, 0.6);
       group.add(ambient);
-      const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
-      keyLight.position.set(5, 7, 5);
+      const keyLight = new THREE.DirectionalLight(0xffffff, 2.4);
+      keyLight.position.set(keyX, keyY, keyZ);
+      keyLight.castShadow = true;
       group.add(keyLight);
       const fillLight = new THREE.DirectionalLight(0x94a3b8, 1.2);
-      fillLight.position.set(-5, 3, 3);
+      fillLight.position.set(-keyX * 0.8, 3, keyZ * 0.5);
       group.add(fillLight);
       const rimLight = new THREE.DirectionalLight(0x38bdf8, 1.2);
       rimLight.position.set(0, 5, -5);
       group.add(rimLight);
     }
-  }, [options.lightingPreset]);
+  }, [options.lightingPreset, options.lightAngle]);
 
   // Update Background & Controls
   useEffect(() => {
@@ -885,7 +1347,15 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
 
         let totalVertices = 0;
         let totalPolys = 0;
+        let totalSurfaceArea = 0;
+        let totalSignedVolume = 0;
         const materialsSet = new Set<string>();
+
+        const vA = new THREE.Vector3();
+        const vB = new THREE.Vector3();
+        const vC = new THREE.Vector3();
+        const cb = new THREE.Vector3();
+        const ab = new THREE.Vector3();
 
         object.traverse((child) => {
           if ((child as THREE.Mesh).isMesh) {
@@ -895,13 +1365,30 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
 
             const geometry = mesh.geometry;
             if (geometry) {
-              if (geometry.index) {
-                totalPolys += geometry.index.count / 3;
-              } else if (geometry.attributes.position) {
-                totalPolys += geometry.attributes.position.count / 3;
+              const pos = geometry.attributes.position;
+              const idx = geometry.index;
+              if (idx) {
+                totalPolys += idx.count / 3;
+              } else if (pos) {
+                totalPolys += pos.count / 3;
               }
-              if (geometry.attributes.position) {
-                totalVertices += geometry.attributes.position.count;
+              if (pos) {
+                totalVertices += pos.count;
+                const triCount = idx ? idx.count / 3 : pos.count / 3;
+                for (let i = 0; i < triCount; i++) {
+                  const a = idx ? idx.getX(i * 3) : i * 3;
+                  const b = idx ? idx.getX(i * 3 + 1) : i * 3 + 1;
+                  const c = idx ? idx.getX(i * 3 + 2) : i * 3 + 2;
+                  vA.fromBufferAttribute(pos, a);
+                  vB.fromBufferAttribute(pos, b);
+                  vC.fromBufferAttribute(pos, c);
+
+                  cb.subVectors(vC, vB);
+                  ab.subVectors(vA, vB);
+                  cb.cross(ab);
+                  totalSurfaceArea += cb.length() * 0.5;
+                  totalSignedVolume += vA.dot(vB.cross(vC)) / 6.0;
+                }
               }
             }
 
@@ -952,6 +1439,8 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
               z: Number(size.z.toFixed(2)),
             },
             materialCount: materialsSet.size,
+            surfaceArea: Number(totalSurfaceArea.toFixed(3)),
+            volume: Number(Math.abs(totalSignedVolume).toFixed(4)),
           });
         }
 
@@ -1004,17 +1493,28 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
 
         if (options.materials && options.materials.preset !== 'default') {
           const mat = options.materials;
+          const isGlass = mat.preset === 'frosted-glass' || mat.preset === 'emerald-gem';
           const physicalMat = new THREE.MeshPhysicalMaterial({
             color: new THREE.Color(mat.color),
             metalness: mat.metalness,
             roughness: mat.roughness,
             clearcoat: mat.clearcoat,
             clearcoatRoughness: 0.1,
+            transmission: mat.transmission ?? (mat.preset === 'frosted-glass' ? 0.92 : mat.preset === 'emerald-gem' ? 0.85 : 0),
+            ior: mat.ior ?? (mat.preset === 'frosted-glass' ? 1.52 : mat.preset === 'emerald-gem' ? 1.6 : 1.5),
+            thickness: isGlass || (mat.transmission && mat.transmission > 0) ? 1.2 : 0,
             wireframe: options.wireframe,
           });
           if (mat.emissiveIntensity > 0) {
             physicalMat.emissive = new THREE.Color(mat.emissiveColor || '#000000');
             physicalMat.emissiveIntensity = mat.emissiveIntensity;
+          }
+          if (mat.proceduralPattern && mat.proceduralPattern !== 'none') {
+            const patTex = getProceduralPatternTexture(mat.proceduralPattern);
+            if (patTex) {
+              physicalMat.map = patTex;
+              physicalMat.roughnessMap = patTex;
+            }
           }
           mesh.material = physicalMat;
           return;
@@ -1035,6 +1535,40 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           mesh.material = new THREE.MeshBasicMaterial({
             color: 0x00f0ff,
             wireframe: true,
+          });
+        } else if (options.shadingMode === 'albedo') {
+          const baseColor = origMat?.color ? origMat.color.clone() : new THREE.Color(0xffffff);
+          const map = origMat?.map || null;
+          mesh.material = new THREE.MeshBasicMaterial({
+            color: baseColor,
+            map: map,
+            wireframe: options.wireframe,
+          });
+        } else if (options.shadingMode === 'roughness') {
+          const r = origMat?.roughness !== undefined ? origMat.roughness : 0.5;
+          mesh.material = new THREE.MeshBasicMaterial({
+            color: new THREE.Color(r, r, r),
+            map: origMat?.roughnessMap || null,
+            wireframe: options.wireframe,
+          });
+        } else if (options.shadingMode === 'metalness') {
+          const m = origMat?.metalness !== undefined ? origMat.metalness : 0.0;
+          mesh.material = new THREE.MeshBasicMaterial({
+            color: new THREE.Color(m, m, m),
+            map: origMat?.metalnessMap || null,
+            wireframe: options.wireframe,
+          });
+        } else if (options.shadingMode === 'matcap') {
+          if (!matcapTextureRef.current) {
+            matcapTextureRef.current = createProceduralMatcapTexture();
+          }
+          mesh.material = new THREE.MeshMatcapMaterial({
+            matcap: matcapTextureRef.current,
+            wireframe: options.wireframe,
+          });
+        } else if (options.shadingMode === 'depth') {
+          mesh.material = new THREE.MeshDepthMaterial({
+            wireframe: options.wireframe,
           });
         } else {
           if (origMat) {
@@ -1388,6 +1922,12 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
             <kbd className="px-1 py-0.5 rounded bg-slate-800 text-[9px] text-slate-200 border border-slate-700 font-mono">X</kbd> Slice
           </span>
           <span className="text-slate-300 flex items-center gap-1">
+            <kbd className="px-1 py-0.5 rounded bg-slate-800 text-[9px] text-slate-200 border border-slate-700 font-mono">M</kbd> Measure
+          </span>
+          <span className="text-slate-300 flex items-center gap-1">
+            <kbd className="px-1 py-0.5 rounded bg-slate-800 text-[9px] text-slate-200 border border-slate-700 font-mono">A</kbd> Pin
+          </span>
+          <span className="text-slate-300 flex items-center gap-1">
             <kbd className="px-1 py-0.5 rounded bg-slate-800 text-[9px] text-slate-200 border border-slate-700 font-mono">C</kbd> {options.cameraProjection === 'orthographic' ? 'Ortho' : 'Persp'}
           </span>
           <span className="text-slate-300 flex items-center gap-1">
@@ -1486,7 +2026,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
 
           <button
             onClick={() => handleToolClick('measure')}
-            title="Measure Topology Dimensions"
+            title="Surface Caliper & Dimensions [M]"
             className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
               showDimensions || activeTool === 'measure'
                 ? 'bg-lime-500 text-slate-950 font-bold'
@@ -1495,6 +2035,19 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           >
             <Ruler className="w-4 h-4" />
             <span className="text-[8px]">Measure</span>
+          </button>
+
+          <button
+            onClick={() => handleToolClick('annotate')}
+            title="Surface 3D Pinpoint Annotations [A]"
+            className={`p-2 rounded-lg transition-all flex flex-col items-center gap-0.5 text-[9px] ${
+              activeTool === 'annotate'
+                ? 'bg-amber-400 text-slate-950 font-bold shadow-md shadow-amber-400/20'
+                : 'hover:bg-slate-800 hover:text-slate-200'
+            }`}
+          >
+            <MapPin className="w-4 h-4" />
+            <span className="text-[8px]">Pinpoint</span>
           </button>
         </div>
 
@@ -1680,6 +2233,178 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           </div>
         )}
 
+        {/* CALIPER 3D SURFACE MEASUREMENT OVERLAY */}
+        {activeTool === 'measure' && (
+          <div className="absolute left-20 top-24 z-20 p-3 rounded-2xl bg-slate-950/95 border border-cyan-500/50 text-xs font-mono text-cyan-300 backdrop-blur-md shadow-2xl flex flex-col gap-2.5 w-72 animate-fadeIn">
+            <div className="flex items-center justify-between">
+              <span className="text-white font-sans font-semibold flex items-center gap-1.5">
+                <Crosshair className="w-3.5 h-3.5 text-cyan-400" />
+                3D Surface Caliper
+              </span>
+              <button
+                onClick={() => {
+                  setMeasurePointA(null);
+                  setMeasurePointB(null);
+                  measurePointARef.current = null;
+                  measurePointBRef.current = null;
+                  setLocalMeasurement(null);
+                  onMeasurementChange?.(null);
+                }}
+                className="px-2 py-0.5 rounded text-[10px] font-sans font-semibold bg-slate-800 text-slate-300 hover:bg-rose-950 hover:text-rose-300 border border-slate-700 hover:border-rose-500/50 transition-colors"
+              >
+                Clear
+              </button>
+            </div>
+
+            <p className="text-[11px] text-slate-400 font-sans leading-relaxed">
+              Click two points directly on the 3D model surface to measure Euclidean distance and coordinate deltas.
+            </p>
+
+            <div className="space-y-1.5 pt-1 border-t border-slate-800/80">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-400 font-sans">Point A:</span>
+                <span className="text-cyan-400 font-mono">
+                  {effectiveMeasurement?.pointA
+                    ? `[${effectiveMeasurement.pointA.map((v) => v.toFixed(2)).join(', ')}]`
+                    : 'Click surface...'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-slate-400 font-sans">Point B:</span>
+                <span className="text-amber-400 font-mono">
+                  {effectiveMeasurement?.pointB
+                    ? `[${effectiveMeasurement.pointB.map((v) => v.toFixed(2)).join(', ')}]`
+                    : effectiveMeasurement?.pointA
+                    ? 'Click 2nd point...'
+                    : 'Waiting for Point A'}
+                </span>
+              </div>
+
+              {effectiveMeasurement?.distance != null && (
+                <div className="mt-2 p-2 rounded-xl bg-cyan-950/40 border border-cyan-500/40 flex flex-col gap-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-300 font-sans font-medium text-[11px]">Surface Distance:</span>
+                    <span className="text-cyan-300 font-bold text-sm">
+                      {effectiveMeasurement.distance.toFixed(3)} m
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-400 flex items-center justify-between">
+                    <span>Millimeters:</span>
+                    <span className="font-semibold text-slate-200">
+                      {(effectiveMeasurement.distance * 1000).toFixed(1)} mm
+                    </span>
+                  </div>
+                  {effectiveMeasurement.delta && (
+                    <div className="text-[10px] text-slate-500 font-mono flex items-center gap-2 pt-1 border-t border-cyan-900/40">
+                      <span>ΔX: {effectiveMeasurement.delta.x.toFixed(2)}</span>
+                      <span>ΔY: {effectiveMeasurement.delta.y.toFixed(2)}</span>
+                      <span>ΔZ: {effectiveMeasurement.delta.z.toFixed(2)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 3D SURFACE ANNOTATIONS CONTROLLER OVERLAY */}
+        {activeTool === 'annotate' && (
+          <div className="absolute left-20 top-24 z-20 p-3 rounded-2xl bg-slate-950/95 border border-amber-500/50 text-xs font-mono text-amber-300 backdrop-blur-md shadow-2xl flex flex-col gap-2.5 w-72 animate-fadeIn">
+            <div className="flex items-center justify-between">
+              <span className="text-white font-sans font-semibold flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-amber-400" />
+                3D Pinpoint Hotspots
+              </span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-sans font-semibold bg-amber-950/60 border border-amber-500/40 text-amber-300">
+                {effectiveAnnotations.length} pinned
+              </span>
+            </div>
+
+            <p className="text-[11px] text-slate-400 font-sans leading-relaxed">
+              Click any mesh surface to pin an inspection marker. Click a pin to focus camera.
+            </p>
+
+            {effectiveAnnotations.length > 0 && (
+              <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1">
+                {effectiveAnnotations.map((ann, idx) => (
+                  <div
+                    key={ann.id}
+                    onClick={() => handleFocusAnnotation(ann)}
+                    className={`p-2 rounded-xl border text-[11px] cursor-pointer transition-all flex items-center justify-between ${
+                      selectedAnnotationId === ann.id
+                        ? 'bg-amber-950/40 border-amber-500/60 text-amber-200'
+                        : 'bg-slate-900/80 border-slate-800 text-slate-300 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-amber-500 text-slate-950 font-bold text-[10px] flex items-center justify-center font-sans">
+                        {idx + 1}
+                      </span>
+                      <div className="flex flex-col">
+                        <span className="font-sans font-semibold">{ann.title}</span>
+                        <span className="text-[10px] text-slate-400">{ann.comment}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const next = effectiveAnnotations.filter((a) => a.id !== ann.id);
+                        setLocalAnnotations(next);
+                        onAnnotationsChange?.(next);
+                      }}
+                      className="p-1 rounded text-slate-500 hover:text-rose-400 transition-colors"
+                      title="Delete Pin"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* FLOATING 2D SCREEN-SPACE ANNOTATION BADGES */}
+        {projectedAnnotations.map((p) => {
+          if (!p.visible) return null;
+          const isSel = p.id === selectedAnnotationId;
+          const ann = effectiveAnnotations.find((a) => a.id === p.id);
+          return (
+            <div
+              key={p.id}
+              style={{
+                position: 'absolute',
+                left: `${p.x}px`,
+                top: `${p.y}px`,
+                transform: 'translate(-50%, -100%)',
+                pointerEvents: 'auto',
+              }}
+              className="z-20 group cursor-pointer"
+              onClick={() => ann && handleFocusAnnotation(ann)}
+            >
+              <div
+                className={`relative flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-sans font-bold shadow-lg transition-all ${
+                  isSel
+                    ? 'bg-amber-400 text-slate-950 scale-110 shadow-amber-500/50 ring-2 ring-amber-300'
+                    : 'bg-slate-950/90 text-cyan-300 border border-cyan-500/50 hover:bg-cyan-500 hover:text-slate-950'
+                }`}
+              >
+                <MapPin className="w-3 h-3" />
+                <span>{p.index}</span>
+                {/* Tooltip on Hover */}
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:flex flex-col items-center pointer-events-none whitespace-nowrap z-30">
+                  <div className="px-2 py-1 rounded-md bg-slate-950 border border-slate-800 text-[10px] text-slate-200 shadow-xl">
+                    <span className="font-semibold text-amber-400">{p.title}</span>
+                    {ann?.comment && <span className="block text-slate-400">{ann.comment}</span>}
+                  </div>
+                  <div className="w-2 h-2 bg-slate-950 rotate-45 border-r border-b border-slate-800 -mt-1" />
+                </div>
+              </div>
+              <div className="w-1.5 h-1.5 bg-amber-400 rounded-full mx-auto mt-0.5 animate-ping opacity-75" />
+            </div>
+          );
+        })}
+
         {/* TOP-RIGHT 3D ORIENTATION GIZMO (X/Y/Z) */}
         <div className="absolute right-4 top-4 z-20 flex flex-col items-center gap-2">
           <div 
@@ -1758,6 +2483,19 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           </button>
 
           <button
+            onClick={() => onOptionsChange?.({ ...options, wireframeOverlay: !options.wireframeOverlay })}
+            title="Toggle Wireframe Edge Overlay on Shaded Geometry"
+            className={`px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all ${
+              options.wireframeOverlay
+                ? 'bg-emerald-950/80 border-emerald-500/60 text-emerald-300 shadow-sm'
+                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>Edges</span>
+          </button>
+
+          <button
             onClick={() => onOptionsChange?.({ ...options, grid: !options.grid })}
             className={`px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all ${
               options.grid
@@ -1781,6 +2519,22 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
             <span>360° Turntable</span>
           </button>
 
+          {/* Key Light Orbit Slider */}
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-400">
+            <Sun className="w-3.5 h-3.5 text-amber-400" />
+            <input
+              type="range"
+              min={0}
+              max={360}
+              step={5}
+              value={options.lightAngle ?? 45}
+              onChange={(e) => onOptionsChange?.({ ...options, lightAngle: Number(e.target.value) })}
+              className="w-16 accent-amber-400 cursor-pointer h-1 bg-slate-800 rounded-lg"
+              title={`Sun Orbit Angle: ${options.lightAngle ?? 45}°`}
+            />
+            <span className="font-mono text-[10px] text-amber-300 w-6">{options.lightAngle ?? 45}°</span>
+          </div>
+
           <select
             value={options.shadingMode}
             onChange={(e) => onOptionsChange?.({ ...options, shadingMode: e.target.value as any })}
@@ -1789,6 +2543,11 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
             <option value="pbr">PBR Shaded</option>
             <option value="clay">Clay Studio</option>
             <option value="normals">Normal Vectors</option>
+            <option value="albedo">Base Color (Albedo)</option>
+            <option value="roughness">Roughness Map</option>
+            <option value="metalness">Metalness Map</option>
+            <option value="matcap">Curvature Matcap</option>
+            <option value="depth">Z-Depth Gradient</option>
             <option value="wireframe">Cyber Mesh</option>
           </select>
         </div>

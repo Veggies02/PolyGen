@@ -63,14 +63,17 @@ export interface GenerationSettings {
 }
 
 export interface MaterialCustomization {
-  preset: 'default' | 'titanium' | 'cyberpunk-neon' | 'obsidian' | 'gold' | 'iridescent' | 'matte-carbon';
+  preset: 'default' | 'titanium' | 'cyberpunk-neon' | 'obsidian' | 'gold' | 'iridescent' | 'matte-carbon' | 'frosted-glass' | 'emerald-gem' | 'hologram';
   color: string;
   metalness: number;
   roughness: number;
   emissiveColor: string;
   emissiveIntensity: number;
   clearcoat: number;
+  transmission?: number;
+  ior?: number;
   wireframeOverlay: boolean;
+  proceduralPattern?: 'none' | 'checker' | 'hex-armor' | 'carbon-weave' | 'tech-circuit';
 }
 
 export interface ClippingOptions {
@@ -83,10 +86,12 @@ export interface ClippingOptions {
 
 export interface ViewerOptions {
   wireframe: boolean;
+  wireframeOverlay?: boolean;
   grid: boolean;
   autoRotate: boolean;
-  shadingMode: 'pbr' | 'clay' | 'normals' | 'wireframe';
+  shadingMode: 'pbr' | 'clay' | 'normals' | 'wireframe' | 'albedo' | 'roughness' | 'metalness' | 'matcap' | 'depth';
   lightingPreset: 'studio' | 'cyberpunk' | 'sunset' | 'space' | 'dramatic' | 'soft';
+  lightAngle?: number;
   backgroundColor: string;
   exposure: number;
   cameraProjection?: 'perspective' | 'orthographic';
@@ -98,4 +103,23 @@ export interface TransformData {
   position: [number, number, number];
   rotation: [number, number, number];
   scale: [number, number, number];
+}
+
+export interface ModelAnnotation {
+  id: string;
+  point: [number, number, number];
+  title: string;
+  comment?: string;
+  createdAt: string;
+}
+
+export interface MeasurementData {
+  pointA: [number, number, number] | null;
+  pointB: [number, number, number] | null;
+  distance: number | null;
+  delta: {
+    x: number;
+    y: number;
+    z: number;
+  } | null;
 }
