@@ -207,6 +207,12 @@ export const App: React.FC = () => {
     setCurrentView('studio');
   };
 
+  const handleAssetProcessed = (newAsset: Asset, _newModelUrl?: string) => {
+    setAssets((prev) => [newAsset, ...prev.filter((a) => a.id !== newAsset.id)]);
+    setActiveAsset(newAsset);
+    api.getStats().then(setStats).catch(console.error);
+  };
+
   // Handle Delete Asset
   const handleDeleteAsset = async (id: string) => {
     try {
@@ -364,6 +370,7 @@ export const App: React.FC = () => {
                   captureSnapshotRef={captureSnapshotRef}
                   isZenMode={isZenMode}
                   onToggleZenMode={() => setIsZenMode(!isZenMode)}
+                  onAssetProcessed={handleAssetProcessed}
                   className="w-full h-full"
                 />
 

@@ -123,3 +123,94 @@ export interface MeasurementData {
     z: number;
   } | null;
 }
+
+export interface MeshProcessingCapabilities {
+  pipeline_version?: string;
+  supported_formats: string[];
+  supported_input_formats?: string[];
+  supported_output_formats?: string[];
+  max_upload_size_bytes: number;
+  max_upload_size_mb: number;
+  texture_providers: {
+    procedural: {
+      available: boolean;
+      supported_styles: string[];
+    };
+    stable_diffusion: {
+      available: boolean;
+      default_model?: string;
+      device_info?: {
+        device: string;
+        torch_dtype: string;
+        mps_available: boolean;
+        cuda_available: boolean;
+        backend_description: string;
+      };
+    };
+  };
+  qem_simplification?: {
+    available: boolean;
+    algorithm: string;
+  };
+}
+
+export interface MeshOptimizationMetrics {
+  optimized: boolean;
+  algorithm: string;
+  original_face_count: number;
+  final_face_count: number;
+  reduction_percentage: number;
+  requested_target_faces?: number | null;
+  target_reached: boolean;
+  execution_time_seconds: number;
+  warnings: string[];
+}
+
+export interface MeshProcessOptions {
+  texture_provider?: 'procedural' | 'stable_diffusion';
+  texture_style?: string;
+  texture_prompt?: string;
+  texture_resolution?: number;
+  texture_seed?: number;
+  negative_prompt?: string;
+  fallback_to_procedural?: boolean;
+  title?: string;
+  metallic_factor?: number;
+  roughness_factor?: number;
+  enable_optimization?: boolean;
+  target_faces?: number;
+  reduction_ratio?: number;
+}
+
+export interface MeshProcessResponse {
+  success: boolean;
+  asset_id: string;
+  title: string;
+  format_uploaded: string;
+  poly_count: number;
+  vertex_count: number;
+  requested_texture_provider: string;
+  actual_texture_provider: string;
+  is_fallback: boolean;
+  texture_style?: string | null;
+  texture_resolution: [number, number];
+  formats: Record<string, string>;
+  download_url: string;
+  metrics: {
+    is_watertight: boolean;
+    surface_area: number;
+    dimensions: [number, number, number];
+    uv_chart_count: number;
+    seam_vertex_duplications: number;
+    round_trip_success: boolean;
+    optimization?: MeshOptimizationMetrics;
+  };
+  warnings: string[];
+}
+
+export interface TextureStyleInfo {
+  id: string;
+  name: string;
+  description: string;
+}
+

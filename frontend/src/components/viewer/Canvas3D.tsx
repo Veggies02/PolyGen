@@ -33,10 +33,26 @@ import {
   MapPin,
   Crosshair,
   Trash2,
-  Sun
+  Sun,
+  Sparkles,
+  Upload,
+  CheckCircle2,
+  Info,
+  FileText,
+  X,
+  Gauge
 } from 'lucide-react';
 import { api } from '../../api/client';
-import type { ViewerOptions, TransformData, ModelAnnotation, MeasurementData } from '../../types';
+import type {
+  ViewerOptions,
+  TransformData,
+  ModelAnnotation,
+  MeasurementData,
+  Asset,
+  MeshProcessingCapabilities,
+  MeshProcessResponse,
+  TextureStyleInfo,
+} from '../../types';
 
 function createProceduralMatcapTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
@@ -155,6 +171,7 @@ interface Canvas3DProps {
   className?: string;
   isZenMode?: boolean;
   onToggleZenMode?: () => void;
+  onAssetProcessed?: (newAsset: Asset, newModelUrl: string) => void;
 }
 
 export const Canvas3D: React.FC<Canvas3DProps> = ({
@@ -176,6 +193,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   className = '',
   isZenMode = false,
   onToggleZenMode,
+  onAssetProcessed,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const gizmoCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -199,11 +217,60 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const lightsGroupRef = useRef<THREE.Group | null>(null);
   const boxHelperRef = useRef<THREE.BoxHelper | null>(null);
+  const uvCanvasRef = useRef<HTMLCanvasElement>(null);
+  const firstMeshRef = useRef<THREE.Mesh | null>(null);
   const onTransformChangeRef = useRef(onTransformChange);
   onTransformChangeRef.current = onTransformChange;
 
+  const [activeModelUrl, setActiveModelUrl] = useState<string | null>(modelUrl || null);
+  const [loadedMeshRevision, setLoadedMeshRevision] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Sync internal activeModelUrl with external prop
+  useEffect(() => {
+    setActiveModelUrl(modelUrl || null);
+  }, [modelUrl]);
+
+  // UV Inspection telemetry state
+  const [uvStats, setUvStats] = useState<{
+    hasUV: boolean;
+    uvVertexCount: number;
+    uMin: number;
+    uMax: number;
+    vMin: number;
+    vMax: number;
+    in01Range: boolean;
+  } | null>(null);
+
+  // Texturing Studio state (Milestones 6 & 7A)
+  const [modelSource, setModelSource] = useState<'current' | 'upload'>('current');
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [textureProvider, setTextureProvider] = useState<'procedural' | 'stable_diffusion'>('procedural');
+  const [textureStyle, setTextureStyle] = useState<string>('scifi');
+  const [texturePrompt, setTexturePrompt] = useState<string>('');
+  const [textureResolution, setTextureResolution] = useState<number>(512);
+  const [metallicFactor, setMetallicFactor] = useState<number>(0.5);
+  const [roughnessFactor, setRoughnessFactor] = useState<number>(0.5);
+  const [fallbackToProcedural, setFallbackToProcedural] = useState<boolean>(true);
+
+  // QEM Mesh Simplification Options (Milestone 7A)
+  const [enableOptimization, setEnableOptimization] = useState<boolean>(false);
+  const [targetPreset, setTargetPreset] = useState<'high' | 'medium' | 'low' | 'custom'>('medium');
+  const [customTargetFaces, setCustomTargetFaces] = useState<number>(10000);
+  const [optimizationMode, setOptimizationMode] = useState<'faces' | 'ratio'>('faces');
+  const [reductionPercentage, setReductionPercentage] = useState<number>(50);
+
+  // Capabilities & Style list fetched from backend
+  const [capabilities, setCapabilities] = useState<MeshProcessingCapabilities | null>(null);
+  const [availableStyles, setAvailableStyles] = useState<TextureStyleInfo[]>([]);
+
+  // Processing execution & telemetry
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [processingStage, setProcessingStage] = useState<string>('');
+  const [processSuccess, setProcessSuccess] = useState<MeshProcessResponse | null>(null);
+  const [processError, setProcessError] = useState<string | null>(null);
+  const [processWarning, setProcessWarning] = useState<string | null>(null);
 
   // Studio tabs and tools
   const [activeTab, setActiveTab] = useState<'modeling' | 'uv' | 'texturing'>('modeling');
@@ -1315,12 +1382,174 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     setImportedName(null);
   }, [modelUrl]);
 
+  // Load Capabilities & Styles
+  useEffect(() => {
+    api.getMeshCapabilities()
+      .then((caps) => {
+        setCapabilities(caps);
+      })
+      .catch((err) => console.warn('Could not fetch mesh capabilities:', err));
+
+    api.getTextureStyles()
+      .then((styles) => {
+        if (Array.isArray(styles) && styles.length > 0) {
+          setAvailableStyles(styles);
+          if (!textureStyle || textureStyle === 'scifi') {
+            setTextureStyle(styles[0].id);
+          }
+        }
+      })
+      .catch((err) => console.warn('Could not fetch texture styles:', err));
+  }, []);
+
+  // Draw 2D UV Wireframe Atlas on Canvas
+  const drawUVAtlas = (canvas: HTMLCanvasElement, mesh: THREE.Mesh | null) => {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    if (!mesh || !mesh.geometry || !mesh.geometry.attributes.uv) {
+      ctx.fillStyle = '#090d16';
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#64748b';
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('No UV Coordinates Found on Mesh', w / 2, h / 2);
+      return;
+    }
+
+    const geom = mesh.geometry;
+    const uvAttr = geom.attributes.uv as THREE.BufferAttribute;
+    const padding = 24;
+    const plotW = w - padding * 2;
+    const plotH = h - padding * 2;
+
+    // Background
+    ctx.fillStyle = '#090d16';
+    ctx.fillRect(0, 0, w, h);
+
+    // Sub-grid lines (0.25 intervals)
+    ctx.strokeStyle = '#1e293b';
+    ctx.lineWidth = 1;
+    for (let s = 0; s <= 4; s++) {
+      const x = padding + (plotW * s) / 4;
+      const y = padding + (plotH * s) / 4;
+      ctx.beginPath();
+      ctx.moveTo(x, padding);
+      ctx.lineTo(x, padding + plotH);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(padding, y);
+      ctx.lineTo(padding + plotW, y);
+      ctx.stroke();
+    }
+
+    // [0, 1] Bounds Box
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(padding, padding, plotW, plotH);
+
+    // Axis Labels
+    ctx.fillStyle = '#64748b';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('(0,1)', padding + 2, padding - 6);
+    ctx.fillText('(0,0)', padding + 2, padding + plotH + 14);
+    ctx.textAlign = 'right';
+    ctx.fillText('(1,1)', padding + plotW, padding - 6);
+    ctx.fillText('(1,0)', padding + plotW, padding + plotH + 14);
+
+    // Draw UV Triangles
+    const toCanvas = (u: number, v: number) => ({
+      x: padding + u * plotW,
+      y: padding + (1 - v) * plotH,
+    });
+
+    const index = geom.index;
+    const triangleCount = index ? index.count / 3 : uvAttr.count / 3;
+
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.05)';
+    ctx.lineWidth = 0.75;
+
+    const maxTriangles = Math.min(triangleCount, 6000);
+    const step = Math.max(1, Math.floor(triangleCount / maxTriangles));
+
+    for (let t = 0; t < triangleCount; t += step) {
+      const i0 = index ? index.getX(t * 3) : t * 3;
+      const i1 = index ? index.getX(t * 3 + 1) : t * 3 + 1;
+      const i2 = index ? index.getX(t * 3 + 2) : t * 3 + 2;
+
+      const p0 = toCanvas(uvAttr.getX(i0), uvAttr.getY(i0));
+      const p1 = toCanvas(uvAttr.getX(i1), uvAttr.getY(i1));
+      const p2 = toCanvas(uvAttr.getX(i2), uvAttr.getY(i2));
+
+      ctx.beginPath();
+      ctx.moveTo(p0.x, p0.y);
+      ctx.lineTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+  };
+
+  // UV Inspection extraction effect
+  useEffect(() => {
+    if (activeTab === 'uv') {
+      const mesh = firstMeshRef.current;
+      if (mesh && mesh.geometry && mesh.geometry.attributes.uv) {
+        const uvAttr = mesh.geometry.attributes.uv as THREE.BufferAttribute;
+        let uMin = Infinity, uMax = -Infinity, vMin = Infinity, vMax = -Infinity;
+        for (let i = 0; i < uvAttr.count; i++) {
+          const u = uvAttr.getX(i);
+          const v = uvAttr.getY(i);
+          if (u < uMin) uMin = u;
+          if (u > uMax) uMax = u;
+          if (v < vMin) vMin = v;
+          if (v > vMax) vMax = v;
+        }
+        const in01 = uMin >= -0.01 && uMax <= 1.01 && vMin >= -0.01 && vMax <= 1.01;
+        setUvStats({
+          hasUV: true,
+          uvVertexCount: uvAttr.count,
+          uMin: Number(uMin.toFixed(3)),
+          uMax: Number(uMax.toFixed(3)),
+          vMin: Number(vMin.toFixed(3)),
+          vMax: Number(vMax.toFixed(3)),
+          in01Range: in01,
+        });
+        if (uvCanvasRef.current) {
+          drawUVAtlas(uvCanvasRef.current, mesh);
+        }
+      } else {
+        setUvStats({
+          hasUV: false,
+          uvVertexCount: 0,
+          uMin: 0,
+          uMax: 0,
+          vMin: 0,
+          vMax: 0,
+          in01Range: false,
+        });
+        if (uvCanvasRef.current) {
+          drawUVAtlas(uvCanvasRef.current, null);
+        }
+      }
+    }
+  }, [activeTab, loadedMeshRevision]);
+
   // Load Model
   useEffect(() => {
-    const effectiveUrl = importedModelUrl || modelUrl;
+    const effectiveUrl = importedModelUrl || activeModelUrl || modelUrl;
     if (!modelGroupRef.current || !effectiveUrl) return;
     const group = modelGroupRef.current;
     group.clear();
+    firstMeshRef.current = null;
 
     setLoading(true);
     setLoadError(null);
@@ -1360,6 +1589,9 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
         object.traverse((child) => {
           if ((child as THREE.Mesh).isMesh) {
             const mesh = child as THREE.Mesh;
+            if (!firstMeshRef.current) {
+              firstMeshRef.current = mesh;
+            }
             mesh.castShadow = true;
             mesh.receiveShadow = true;
 
@@ -1445,6 +1677,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
         }
 
         applyShadingAndWireframe();
+        setLoadedMeshRevision((r) => r + 1);
         setLoading(false);
       },
       undefined,
@@ -1454,7 +1687,150 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
         setLoading(false);
       }
     );
-  }, [modelUrl, importedModelUrl]);
+  }, [modelUrl, activeModelUrl, importedModelUrl]);
+
+  // Handle Mesh Processing & Texturing (Milestones 6 & 7A)
+  const handleProcessMesh = async () => {
+    setIsProcessing(true);
+    setProcessError(null);
+    setProcessWarning(null);
+    setProcessSuccess(null);
+    setProcessingStage('Ingesting 3D mesh geometry...');
+
+    try {
+      let fileToProcess: File | Blob;
+      let filenameToProcess: string;
+
+      if (modelSource === 'upload') {
+        if (!uploadedFile) {
+          throw new Error('Please select an OBJ or GLB file to upload.');
+        }
+        fileToProcess = uploadedFile;
+        filenameToProcess = uploadedFile.name;
+      } else {
+        const currentUrl = importedModelUrl || activeModelUrl || modelUrl;
+        if (!currentUrl) {
+          throw new Error('No active model in viewport. Please upload an external mesh or select a model.');
+        }
+        setProcessingStage('Fetching current viewport model...');
+        const resp = await fetch(currentUrl);
+        if (!resp.ok) {
+          throw new Error(`Failed to fetch current model from ${currentUrl}`);
+        }
+        fileToProcess = await resp.blob();
+        filenameToProcess = `${assetTitle || assetId || 'active_model'}.glb`;
+      }
+
+      // Prepare QEM Optimization options
+      const optOptions: {
+        enable_optimization?: boolean;
+        target_faces?: number;
+        reduction_ratio?: number;
+      } = {};
+
+      if (enableOptimization) {
+        optOptions.enable_optimization = true;
+        if (optimizationMode === 'ratio') {
+          optOptions.reduction_ratio = Math.min(Math.max(reductionPercentage / 100, 0.01), 0.99);
+        } else {
+          let resolvedFaces = 10000;
+          if (targetPreset === 'high') resolvedFaces = 25000;
+          else if (targetPreset === 'medium') resolvedFaces = 10000;
+          else if (targetPreset === 'low') resolvedFaces = 2500;
+          else if (targetPreset === 'custom') resolvedFaces = Math.max(1, Math.round(customTargetFaces || 10000));
+          optOptions.target_faces = resolvedFaces;
+        }
+      } else {
+        optOptions.enable_optimization = false;
+      }
+
+      setProcessingStage(
+        enableOptimization
+          ? 'Optimizing mesh polygons (QEM) & unwrapping UVs (xatlas)...'
+          : 'Validating geometry & unwrapping UV coordinates (xatlas)...'
+      );
+
+      const stageTimer1 = setTimeout(() => {
+        setProcessingStage(
+          textureProvider === 'stable_diffusion'
+            ? 'Synthesizing neural texture via Stable Diffusion (MPS)...'
+            : 'Synthesizing procedural texture pattern...'
+        );
+      }, 1400);
+
+      const stageTimer2 = setTimeout(() => {
+        setProcessingStage('Mapping UVs, constructing PBR materials & exporting GLB...');
+      }, 3000);
+
+      const response = await api.processMesh(fileToProcess, filenameToProcess, {
+        texture_provider: textureProvider,
+        texture_style: textureStyle,
+        texture_prompt: texturePrompt.trim() || undefined,
+        texture_resolution: textureResolution,
+        fallback_to_procedural: fallbackToProcedural,
+        title: assetTitle ? `${assetTitle} (Textured)` : `${filenameToProcess.replace(/\.[^/.]+$/, '')} (Textured)`,
+        metallic_factor: metallicFactor,
+        roughness_factor: roughnessFactor,
+        ...optOptions,
+      });
+
+      clearTimeout(stageTimer1);
+      clearTimeout(stageTimer2);
+
+      setProcessSuccess(response);
+
+      if (response.warnings && response.warnings.length > 0) {
+        setProcessWarning(response.warnings.join(' | '));
+      } else if (response.is_fallback) {
+        setProcessWarning(`Requested ${response.requested_texture_provider}, but fell back to ${response.actual_texture_provider}.`);
+      }
+
+      // Reload newly generated GLB into Three.js Viewport
+      const newGlbUrl = api.getDownloadUrl(response.asset_id, 'glb');
+      setActiveModelUrl(newGlbUrl);
+
+      // Notify parent App component
+      if (onAssetProcessed) {
+        const newAsset: Asset = {
+          id: response.asset_id,
+          title: response.title,
+          prompt: texturePrompt.trim() || `${response.texture_style || 'scifi'} textured model`,
+          style: response.texture_style || 'scifi',
+          tags: [response.format_uploaded, response.actual_texture_provider, response.texture_style || 'scifi'],
+          created_at: new Date().toISOString(),
+          poly_count: response.poly_count,
+          vertex_count: response.vertex_count,
+          formats: {
+            glb: response.formats?.glb || api.getDownloadUrl(response.asset_id, 'glb'),
+            obj: response.formats?.obj || api.getDownloadUrl(response.asset_id, 'obj'),
+            stl: response.formats?.stl || api.getDownloadUrl(response.asset_id, 'stl'),
+          },
+          file_size_bytes: 0,
+          provider: response.actual_texture_provider,
+          is_demo: false,
+          attributes: {
+            optimization_metrics: response.metrics.optimization,
+            validation: {
+              is_watertight: response.metrics.is_watertight,
+              surface_area: response.metrics.surface_area,
+              dimensions: response.metrics.dimensions,
+              uv_chart_count: response.metrics.uv_chart_count,
+              seam_vertex_duplications: response.metrics.seam_vertex_duplications,
+              round_trip_success: response.metrics.round_trip_success,
+            },
+            texture_resolution: response.texture_resolution,
+          },
+        };
+        onAssetProcessed(newAsset, newGlbUrl);
+      }
+    } catch (err: any) {
+      console.error('Mesh processing failed:', err);
+      setProcessError(err.message || 'Mesh processing pipeline encountered an unexpected error.');
+    } finally {
+      setIsProcessing(false);
+      setProcessingStage('');
+    }
+  };
 
   // Apply Shading Mode & Tab Mode
   const applyShadingAndWireframe = useCallback(() => {
@@ -2467,6 +2843,619 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
             </button>
           </div>
         </div>
+
+        {/* UV ATLAS WIREFRAME INSPECTOR PANEL */}
+        {activeTab === 'uv' && (
+          <div className="absolute right-4 top-24 bottom-20 z-20 w-80 max-h-[calc(100%-10rem)] bg-slate-950/90 backdrop-blur-md border border-sky-500/30 rounded-2xl shadow-2xl p-3 flex flex-col gap-2.5 text-xs text-slate-300 overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+              <div className="flex items-center gap-1.5 font-semibold text-white">
+                <Layers className="w-4 h-4 text-sky-400" />
+                <span>UV Atlas Inspector</span>
+              </div>
+              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                uvStats?.hasUV ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-rose-500/20 text-rose-400'
+              }`}>
+                {uvStats?.hasUV ? 'Unwrapped' : 'No UVs'}
+              </span>
+            </div>
+
+            <div className="flex flex-col items-center justify-center p-2 rounded-xl bg-slate-900/80 border border-slate-800">
+              <canvas
+                ref={uvCanvasRef}
+                width={260}
+                height={260}
+                className="w-[260px] h-[260px] rounded-lg shadow-inner bg-[#090d16]"
+              />
+              <div className="w-full flex items-center justify-between text-[10px] text-slate-500 font-mono mt-1.5 px-1">
+                <span>UV Origin: (0, 0)</span>
+                <span>Bounds: 1.0 × 1.0</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+              <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800">
+                <span className="text-[10px] text-slate-500 uppercase block">UV Vertices</span>
+                <span className="font-mono font-semibold text-slate-200">
+                  {uvStats?.uvVertexCount?.toLocaleString() || 0}
+                </span>
+              </div>
+              <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800">
+                <span className="text-[10px] text-slate-500 uppercase block">Range [0, 1]</span>
+                <span className={`font-mono font-semibold ${uvStats?.in01Range ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {uvStats?.in01Range ? '✓ Normalized' : '⚠ Out of Bounds'}
+                </span>
+              </div>
+              <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800">
+                <span className="text-[10px] text-slate-500 uppercase block">U Bounds</span>
+                <span className="font-mono text-slate-300">
+                  [{uvStats?.uMin ?? 0}, {uvStats?.uMax ?? 0}]
+                </span>
+              </div>
+              <div className="p-2 rounded-lg bg-slate-900/60 border border-slate-800">
+                <span className="text-[10px] text-slate-500 uppercase block">V Bounds</span>
+                <span className="font-mono text-slate-300">
+                  [{uvStats?.vMin ?? 0}, {uvStats?.vMax ?? 0}]
+                </span>
+              </div>
+            </div>
+
+            <div className="p-2 rounded-lg bg-sky-950/30 border border-sky-500/20 text-[10px] text-sky-300 flex items-start gap-1.5">
+              <Info className="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" />
+              <span>3D Viewport displays UV calibration checkerboard with coordinates to check distortion and seams.</span>
+            </div>
+          </div>
+        )}
+
+        {/* TEXTURING ENGINE & QEM STUDIO PANEL */}
+        {activeTab === 'texturing' && (
+          <div className="absolute right-4 top-24 bottom-18 z-20 w-96 max-h-[calc(100%-10rem)] bg-slate-950/95 backdrop-blur-md border border-indigo-500/40 rounded-2xl shadow-2xl p-4 flex flex-col gap-3 text-xs text-slate-300 overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+              <div className="flex items-center gap-1.5 font-semibold text-white">
+                <Sparkles className="w-4 h-4 text-indigo-400" />
+                <span>Texturing Engine Studio</span>
+              </div>
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                QEM Decimation
+              </span>
+            </div>
+
+            {/* Model Source Selector */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                Model Source
+              </label>
+              <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-900/90 border border-slate-800 rounded-xl">
+                <button
+                  onClick={() => setModelSource('current')}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all ${
+                    modelSource === 'current'
+                      ? 'bg-indigo-600 text-white font-semibold shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Current Model
+                </button>
+                <button
+                  onClick={() => setModelSource('upload')}
+                  className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all ${
+                    modelSource === 'upload'
+                      ? 'bg-indigo-600 text-white font-semibold shadow'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Upload Mesh (.obj/.glb)
+                </button>
+              </div>
+
+              {modelSource === 'current' ? (
+                <div className="p-2 rounded-xl bg-slate-900/60 border border-slate-800 text-[11px] flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 truncate">
+                    <Box className="w-3.5 h-3.5 text-lime-400 shrink-0" />
+                    <span className="font-medium text-slate-200 truncate">
+                      {assetTitle || (activeModelUrl ? 'Active Viewport Model' : 'No model loaded')}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-500 shrink-0 font-mono">
+                    {liveBounds ? `${liveBounds.x}×${liveBounds.y}×${liveBounds.z}` : ''}
+                  </span>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  <label className="flex flex-col items-center justify-center p-3 border-2 border-dashed border-slate-700 hover:border-indigo-500/80 rounded-xl bg-slate-900/40 hover:bg-slate-900/80 cursor-pointer transition-all">
+                    <input
+                      type="file"
+                      accept=".obj,.glb"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          setUploadedFile(e.target.files[0]);
+                        }
+                      }}
+                      className="hidden"
+                    />
+                    {uploadedFile ? (
+                      <div className="flex items-center gap-2 text-indigo-300">
+                        <FileText className="w-4 h-4 text-indigo-400" />
+                        <span className="font-semibold text-xs truncate max-w-[200px]">
+                          {uploadedFile.name}
+                        </span>
+                        <span className="text-[10px] text-slate-500">
+                          ({(uploadedFile.size / 1024).toFixed(1)} KB)
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-1 text-slate-400 text-center">
+                        <Upload className="w-4 h-4 text-indigo-400 mb-0.5" />
+                        <span className="text-xs font-medium text-slate-300">Select OBJ or GLB mesh</span>
+                        <span className="text-[10px] text-slate-500">Max size 50 MB</span>
+                      </div>
+                    )}
+                  </label>
+                </div>
+              )}
+            </div>
+
+            {/* QEM Mesh Optimization Section (Milestone 7A) */}
+            <div className="flex flex-col gap-2 p-2.5 rounded-xl bg-slate-900/80 border border-slate-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Sliders className="w-3.5 h-3.5 text-cyan-400" />
+                  <span className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
+                    QEM Mesh Optimization
+                  </span>
+                </div>
+                {capabilities?.qem_simplification?.available ? (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-cyan-950/80 text-cyan-300 border border-cyan-500/30">
+                    QEM Ready
+                  </span>
+                ) : (
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-amber-950/80 text-amber-300 border border-amber-500/30">
+                    Engine Unavailable
+                  </span>
+                )}
+              </div>
+
+              {/* Enable Toggle */}
+              <label className="flex items-center justify-between py-1 cursor-pointer select-none">
+                <div className="flex flex-col">
+                  <span className="text-xs font-medium text-slate-200">
+                    Enable QEM Simplification
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    Decimate polygon faces prior to UV unwrapping
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={enableOptimization}
+                  disabled={!capabilities?.qem_simplification?.available}
+                  onChange={(e) => setEnableOptimization(e.target.checked)}
+                  className="w-4 h-4 accent-cyan-500 rounded cursor-pointer disabled:opacity-40"
+                />
+              </label>
+
+              {/* Controls when Optimization is Enabled */}
+              {enableOptimization && (
+                <div className="flex flex-col gap-2 pt-2 border-t border-slate-800">
+                  {/* Mode Selector: Target Faces vs Reduction Ratio */}
+                  <div className="grid grid-cols-2 gap-1 p-0.5 bg-slate-950/80 border border-slate-800 rounded-lg text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setOptimizationMode('faces')}
+                      className={`py-1 px-2 rounded-md font-medium transition-all ${
+                        optimizationMode === 'faces'
+                          ? 'bg-cyan-600 text-white font-semibold shadow'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      Target Face Count
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOptimizationMode('ratio')}
+                      className={`py-1 px-2 rounded-md font-medium transition-all ${
+                        optimizationMode === 'ratio'
+                          ? 'bg-cyan-600 text-white font-semibold shadow'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      Reduction Percentage
+                    </button>
+                  </div>
+
+                  {optimizationMode === 'faces' ? (
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-semibold text-slate-400 uppercase">
+                        Quality Presets & Target
+                      </label>
+                      <div className="grid grid-cols-4 gap-1">
+                        {[
+                          { id: 'high', label: 'High', count: '25,000', desc: 'High Quality (25k faces)' },
+                          { id: 'medium', label: 'Medium', count: '10,000', desc: 'Balanced Quality (10k faces)' },
+                          { id: 'low', label: 'Low', count: '2,500', desc: 'Low Poly / Mobile (2.5k faces)' },
+                          { id: 'custom', label: 'Custom', count: 'Custom', desc: 'User-specified target faces' },
+                        ].map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => setTargetPreset(p.id as any)}
+                            title={p.desc}
+                            className={`py-1.5 px-1 rounded-lg text-center flex flex-col items-center gap-0.5 border transition-all ${
+                              targetPreset === p.id
+                                ? 'bg-cyan-950/80 border-cyan-500/80 text-cyan-300 font-bold'
+                                : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            <span className="text-[11px] font-medium leading-none">{p.label}</span>
+                            <span className="text-[9px] opacity-75 font-mono">{p.count}</span>
+                          </button>
+                        ))}
+                      </div>
+
+                      {targetPreset === 'custom' && (
+                        <div className="flex flex-col gap-1 mt-1">
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="text-slate-400">Custom Target Face Count:</span>
+                            <span className="font-mono text-cyan-400">{customTargetFaces.toLocaleString()}</span>
+                          </div>
+                          <input
+                            type="number"
+                            min={1}
+                            max={1000000}
+                            step={500}
+                            value={customTargetFaces}
+                            onChange={(e) => setCustomTargetFaces(Math.max(1, parseInt(e.target.value) || 1))}
+                            className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1 text-xs text-slate-200 font-mono focus:outline-none focus:border-cyan-500"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className="font-semibold text-slate-400 uppercase">Polygon Reduction</span>
+                        <span className="font-mono text-cyan-400 font-bold">{reductionPercentage}% cut</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={5}
+                        max={95}
+                        step={5}
+                        value={reductionPercentage}
+                        onChange={(e) => setReductionPercentage(parseInt(e.target.value))}
+                        className="w-full accent-cyan-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                      />
+                      <div className="flex justify-between text-[9px] font-mono text-slate-500">
+                        <span>5% (Subtle)</span>
+                        <span>50% (Balanced)</span>
+                        <span>95% (Aggressive)</span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="text-[9px] text-slate-500 flex items-center gap-1">
+                    <Info className="w-3 h-3 text-slate-400 shrink-0" />
+                    <span>QEM decimates raw 3D geometry; new UV coordinates are generated automatically via xatlas.</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Texture Synthesis Engine Selector */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                  Synthesis Engine
+                </label>
+                {capabilities && (
+                  <span className="text-[9px] font-mono text-cyan-400">
+                    {capabilities.texture_providers?.stable_diffusion?.available ? 'MPS Neural Ready' : 'CPU Engine'}
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  onClick={() => setTextureProvider('procedural')}
+                  className={`p-2 rounded-xl border text-left flex flex-col gap-0.5 transition-all ${
+                    textureProvider === 'procedural'
+                      ? 'bg-emerald-950/60 border-emerald-500/60 text-emerald-300'
+                      : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="font-semibold text-xs">Procedural (CPU)</span>
+                  <span className="text-[10px] opacity-75">Instant 2D patterns</span>
+                </button>
+
+                <button
+                  onClick={() => setTextureProvider('stable_diffusion')}
+                  className={`p-2 rounded-xl border text-left flex flex-col gap-0.5 transition-all ${
+                    textureProvider === 'stable_diffusion'
+                      ? 'bg-indigo-950/60 border-indigo-500/60 text-indigo-300'
+                      : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="font-semibold text-xs">Stable Diffusion</span>
+                  <span className="text-[10px] opacity-75">Neural diffusion (MPS)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Material Style Preset */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                Material Style Preset
+              </label>
+              <select
+                value={textureStyle}
+                onChange={(e) => setTextureStyle(e.target.value)}
+                className="bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+              >
+                {(availableStyles.length > 0 ? availableStyles : [
+                  { id: 'scifi', name: 'Sci-Fi Hull' },
+                  { id: 'metallic', name: 'Brushed Metal' },
+                  { id: 'wood', name: 'Fine Wood Grain' },
+                  { id: 'stone', name: 'Stone & Granite' },
+                  { id: 'marble', name: 'Polished Marble' },
+                  { id: 'carbon_fiber', name: 'Carbon Fiber' },
+                  { id: 'fabric', name: 'Woven Fabric' },
+                  { id: 'ceramic', name: 'Glazed Ceramic' },
+                  { id: 'organic', name: 'Organic / Bio' },
+                ]).map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Custom Texture Prompt */}
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                Custom Texture Prompt
+              </label>
+              <input
+                type="text"
+                value={texturePrompt}
+                onChange={(e) => setTexturePrompt(e.target.value)}
+                placeholder="e.g. seamless brushed titanium with glowing cyan conduits"
+                className="bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+
+            {/* Resolution & PBR Tuning */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                  Resolution
+                </label>
+                <div className="flex items-center gap-1">
+                  {[256, 512, 1024].map((res) => (
+                    <button
+                      key={res}
+                      onClick={() => setTextureResolution(res)}
+                      className={`flex-1 py-1 rounded-lg text-xs font-mono font-medium transition-all ${
+                        textureResolution === res
+                          ? 'bg-indigo-600 text-white font-bold'
+                          : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {res}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="font-semibold text-slate-400 uppercase">Metallic</span>
+                  <span className="font-mono text-indigo-400">{metallicFactor.toFixed(2)}</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={metallicFactor}
+                  onChange={(e) => setMetallicFactor(parseFloat(e.target.value))}
+                  className="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-semibold text-slate-400 uppercase">Roughness</span>
+                <span className="font-mono text-indigo-400">{roughnessFactor.toFixed(2)}</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={roughnessFactor}
+                onChange={(e) => setRoughnessFactor(parseFloat(e.target.value))}
+                className="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+              />
+            </div>
+
+            {/* Fallback Checkbox */}
+            <label className="flex items-center gap-2 text-[11px] text-slate-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={fallbackToProcedural}
+                onChange={(e) => setFallbackToProcedural(e.target.checked)}
+                className="accent-indigo-500 rounded"
+              />
+              <span>Allow procedural fallback if neural model is busy</span>
+            </label>
+
+            {/* Action Button */}
+            <button
+              onClick={handleProcessMesh}
+              disabled={isProcessing || (modelSource === 'upload' && !uploadedFile) || (modelSource === 'current' && !activeModelUrl && !modelUrl)}
+              className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 disabled:opacity-40 disabled:cursor-not-allowed font-semibold text-xs text-white shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2 transition-all cursor-pointer"
+            >
+              {isProcessing ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>{processingStage || 'Processing Mesh...'}</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 text-cyan-300" />
+                  <span>Process & Apply Texture</span>
+                </>
+              )}
+            </button>
+
+            {/* Feedback Messages */}
+            {processError && (
+              <div className="p-2.5 rounded-xl bg-rose-950/80 border border-rose-500/40 text-rose-200 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <div className="flex-1 text-[11px] leading-relaxed">{processError}</div>
+                <button onClick={() => setProcessError(null)} className="text-rose-400 hover:text-white">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
+            {processWarning && (
+              <div className="p-2.5 rounded-xl bg-amber-950/80 border border-amber-500/40 text-amber-200 text-[11px] flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <span className="flex-1">{processWarning}</span>
+              </div>
+            )}
+
+            {processSuccess && (
+              <div className="p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-200 flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 font-semibold text-xs text-emerald-300">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <span>Texture Generated Successfully</span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-900/60 text-emerald-300 border border-emerald-500/30">
+                    {processSuccess.actual_texture_provider}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-1 text-[10px] font-mono text-emerald-400/90">
+                  <span>Polys: {processSuccess.poly_count.toLocaleString()}</span>
+                  <span>Verts: {processSuccess.vertex_count.toLocaleString()}</span>
+                  <span>Resolution: {processSuccess.texture_resolution[0]}×{processSuccess.texture_resolution[1]}</span>
+                  <span>Format: {processSuccess.format_uploaded.toUpperCase()}</span>
+                </div>
+
+                {/* QEM Optimization Telemetry Card */}
+                {processSuccess.metrics.optimization && (
+                  <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <Gauge className="w-3.5 h-3.5 text-cyan-400" />
+                        <span className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider">
+                          Mesh Decimation Telemetry
+                        </span>
+                      </div>
+                      {/* Optimization Status Badge */}
+                      {processSuccess.metrics.optimization.optimized && processSuccess.metrics.optimization.reduction_percentage > 0 ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                          Successfully Optimized
+                        </span>
+                      ) : processSuccess.metrics.optimization.warnings?.some(w => w.toLowerCase().includes('already at or below')) ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+                          Optimization Skipped (At/Below Target)
+                        </span>
+                      ) : enableOptimization ? (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          Optimization Skipped (Mesh Retained)
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">
+                          Optimization Disabled
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Algorithm */}
+                    <div className="text-[10px] text-slate-400 flex items-center justify-between">
+                      <span>Algorithm:</span>
+                      <span className="font-mono text-slate-200">
+                        {processSuccess.metrics.optimization.algorithm}
+                      </span>
+                    </div>
+
+                    {/* Metrics Grid */}
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] font-mono bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Original Faces:</span>
+                        <span className="text-slate-200 font-bold">
+                          {processSuccess.metrics.optimization.original_face_count.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Final Faces:</span>
+                        <span className="text-cyan-400 font-bold">
+                          {processSuccess.metrics.optimization.final_face_count.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Reduction:</span>
+                        <span className="text-emerald-400 font-bold">
+                          {processSuccess.metrics.optimization.reduction_percentage.toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Requested Target:</span>
+                        <span className="text-slate-200">
+                          {processSuccess.metrics.optimization.requested_target_faces != null
+                            ? processSuccess.metrics.optimization.requested_target_faces.toLocaleString()
+                            : 'N/A'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Target Reached:</span>
+                        <span className={processSuccess.metrics.optimization.target_reached ? 'text-emerald-400 font-bold' : 'text-amber-400'}>
+                          {processSuccess.metrics.optimization.target_reached ? 'Yes' : 'No'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Execution Time:</span>
+                        <span className="text-indigo-400">
+                          {processSuccess.metrics.optimization.execution_time_seconds > 0
+                            ? `${(processSuccess.metrics.optimization.execution_time_seconds * 1000).toFixed(2)} ms`
+                            : '< 0.1 ms'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Warnings / Fallback messages if any */}
+                    {processSuccess.metrics.optimization.warnings && processSuccess.metrics.optimization.warnings.length > 0 && (
+                      <div className="text-[10px] text-amber-300/90 bg-amber-950/40 p-1.5 rounded border border-amber-500/20">
+                        {processSuccess.metrics.optimization.warnings.join(' | ')}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 pt-1 border-t border-emerald-500/20">
+                  <a
+                    href={api.getDownloadUrl(processSuccess.asset_id, 'glb')}
+                    download={`${processSuccess.asset_id}.glb`}
+                    className="flex-1 py-1.5 rounded-lg bg-emerald-900/80 hover:bg-emerald-800 text-center font-semibold text-xs text-white transition-colors"
+                  >
+                    Download GLB
+                  </a>
+                  <a
+                    href={api.getDownloadUrl(processSuccess.asset_id, 'obj')}
+                    download={`${processSuccess.asset_id}.obj`}
+                    className="flex-1 py-1.5 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-700 text-center font-medium text-xs text-slate-200 transition-colors"
+                  >
+                    Download OBJ
+                  </a>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* FLOATING BOTTOM TRIPO/MIXAR PILL UTILITY BAR */}
         <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 p-1.5 bg-slate-950/90 border border-slate-800/90 rounded-2xl shadow-2xl backdrop-blur-md text-xs text-slate-300">

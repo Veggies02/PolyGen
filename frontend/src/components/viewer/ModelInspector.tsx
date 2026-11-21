@@ -25,7 +25,9 @@ import {
   Printer,
   CheckCircle2,
   AlertTriangle,
-  Activity
+  Activity,
+  Gauge,
+  Sparkles
 } from 'lucide-react';
 import { MaterialShaderStudio } from '../studio/MaterialShaderStudio';
 
@@ -639,6 +641,103 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
               </div>
             </div>
           </div>
+
+          {/* QEM Optimization Metrics if present */}
+          {(asset.attributes?.optimization_metrics || (asset as any).optimization_metrics) && (() => {
+            const opt = asset.attributes?.optimization_metrics || (asset as any).optimization_metrics;
+            return (
+              <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-white flex items-center gap-1.5">
+                    <Gauge className="w-3.5 h-3.5 text-cyan-400" />
+                    QEM Optimization Telemetry
+                  </span>
+                  {opt.optimized && opt.reduction_percentage > 0 ? (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                      Optimized ({opt.reduction_percentage.toFixed(1)}%)
+                    </span>
+                  ) : opt.warnings?.some((w: string) => w.toLowerCase().includes('already at or below')) ? (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/40">
+                      At/Below Target
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">
+                      Unreduced
+                    </span>
+                  )}
+                </div>
+
+                <div className="text-[10px] text-slate-400 flex items-center justify-between">
+                  <span>Algorithm:</span>
+                  <span className="font-mono text-slate-200">{opt.algorithm}</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-[10px] font-mono bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Orig Faces:</span>
+                    <span className="text-slate-200 font-bold">{opt.original_face_count?.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Final Faces:</span>
+                    <span className="text-cyan-400 font-bold">{opt.final_face_count?.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Reduction:</span>
+                    <span className="text-emerald-400 font-bold">{opt.reduction_percentage?.toFixed(1)}%</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Target Faces:</span>
+                    <span className="text-slate-200">{opt.requested_target_faces ? opt.requested_target_faces.toLocaleString() : 'N/A'}</span>
+                  </div>
+                </div>
+
+                {opt.warnings && opt.warnings.length > 0 && (
+                  <div className="text-[10px] text-amber-300/90 bg-amber-950/40 p-1.5 rounded border border-amber-500/20">
+                    {opt.warnings.join(' | ')}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Validation & UV Atlas attributes if present */}
+          {asset.attributes?.validation && (() => {
+            const v = asset.attributes.validation;
+            return (
+              <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-white flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                    Mesh Validation & UV Specs
+                  </span>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/40">
+                    Validated
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-[10px] font-mono bg-slate-900/60 p-2 rounded-lg border border-slate-800/80">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Watertight:</span>
+                    <span className={v.is_watertight ? 'text-emerald-400 font-bold' : 'text-amber-400'}>
+                      {v.is_watertight ? 'Yes' : 'No'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">UV Charts:</span>
+                    <span className="text-indigo-400 font-bold">{v.uv_chart_count ?? 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Seam Verts:</span>
+                    <span className="text-slate-200 font-bold">{v.seam_vertex_duplications ?? 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Surface:</span>
+                    <span className="text-slate-200">{v.surface_area != null ? `${v.surface_area.toFixed(2)} m²` : 'N/A'}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Tags */}
           {asset.tags && asset.tags.length > 0 && (
