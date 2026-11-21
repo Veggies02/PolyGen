@@ -21,15 +21,100 @@ class AssetStorageService:
         if not self.metadata_file.exists():
             self._save_index([])
             self.seed_sample_assets()
+        else:
+            # Check if any indexed asset files exist on disk
+            index = self._load_index()
+            valid_entries = [
+                item for item in index
+                if isinstance(item, dict) and "id" in item and (self.base_dir / item["id"] / f"{item['id']}.glb").exists()
+            ]
+            if not valid_entries:
+                # Fresh clone with orphan index: reset index and seed fresh curated assets with real geometry
+                self._save_index([])
+                self.seed_sample_assets()
+            elif len(valid_entries) < len(index):
+                # Clean up phantom records where files were missing
+                self._save_index(valid_entries)
 
     def _load_index(self) -> List[Dict[str, Any]]:
         try:
             if self.metadata_file.exists():
                 with open(self.metadata_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    data = json.load(f)
+                if isinstance(data, list):
+                    needs_resave = False
+                    for item in data:
+                        if isinstance(item, dict) and "attributes" in item:
+                            attrs = item.get("attributes")
+                            if isinstance(attrs, dict) and "aux_files" in attrs:
+                                aux = attrs["aux_files"]
+                                if isinstance(aux, dict):
+                                    for k, v in aux.items():
+                                        if isinstance(v, (bytes, bytearray)) or (
+                                            isinstance(v, str) and (v.startswith("b'") or len(v) > 200)
+                                        ):
+                                            aid = item.get("id")
+                                            adir = self.base_dir / aid if aid else None
+                                            item["attributes"] = self._sanitize_attributes(
+                                                attrs, asset_dir=adir, asset_id=aid
+                                            )
+                                            needs_resave = True
+                                            break
+                    if needs_resave:
+                        self._save_index(data)
+                    return data
         except Exception:
             pass
         return []
+
+    @staticmethod
+    def _sanitize_attributes(
+        attributes: Optional[Dict[str, Any]],
+        asset_dir: Optional[Path] = None,
+        asset_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Sanitizes asset attributes dictionary for serialization into assets_index.json.
+        Converts raw binary buffers or binary-string representations in aux_files into clean companion metadata.
+        """
+        if not attributes or not isinstance(attributes, dict):
+            return {}
+
+        clean = dict(attributes)
+        aux_files = clean.get("aux_files")
+        if isinstance(aux_files, dict):
+            clean_aux = {}
+            for fname, fcontent in aux_files.items():
+                size = 0
+                if asset_dir:
+                    disk_file = asset_dir / fname
+                    if disk_file.exists():
+                        try:
+                            size = disk_file.stat().st_size
+                        except OSError:
+                            pass
+
+                if size == 0:
+                    if isinstance(fcontent, (bytes, bytearray)):
+                        size = len(fcontent)
+                    elif isinstance(fcontent, str):
+                        if (fcontent.startswith("b'") or fcontent.startswith('b"')) and len(fcontent) > 100:
+                            size = max(0, (len(fcontent) - 3) // 4)
+                        else:
+                            size = len(fcontent.encode("utf-8"))
+                    elif isinstance(fcontent, dict) and "size_bytes" in fcontent:
+                        clean_aux[fname] = fcontent
+                        continue
+
+                clean_aux[fname] = {
+                    "filename": fname,
+                    "path": f"{asset_id}/{fname}" if asset_id else fname,
+                    "size_bytes": size,
+                    "format": Path(fname).suffix.lstrip(".").lower() or "bin",
+                }
+            clean["aux_files"] = clean_aux
+
+        return clean
 
     def _save_index(self, data: List[Dict[str, Any]]):
         with open(self.metadata_file, "w", encoding="utf-8") as f:
@@ -39,7 +124,6 @@ class AssetStorageService:
         raw_list = self._load_index()
         assets = []
         for item in raw_list:
-            # Parse created_at
             if isinstance(item.get("created_at"), str):
                 item["created_at"] = datetime.fromisoformat(item["created_at"])
             asset = AssetMetadata(**item)
@@ -50,7 +134,6 @@ class AssetStorageService:
                 continue
             assets.append(asset)
         
-        # Sort newest first
         assets.sort(key=lambda a: a.created_at, reverse=True)
         return assets
 
@@ -110,12 +193,46 @@ class AssetStorageService:
         with open(stl_path, "wb") as f:
             f.write(stl_bytes)
 
+        # Write companion auxiliary files (e.g. material.mtl, material_0.png for OBJ)
+        aux_files = (attributes or {}).get("aux_files", {})
+        if isinstance(aux_files, dict):
+            for fname, fcontent in aux_files.items():
+                target_file = asset_dir / fname
+                if isinstance(fcontent, (bytes, bytearray)):
+                    with open(target_file, "wb") as f:
+                        f.write(fcontent)
+                elif isinstance(fcontent, str):
+                    # Guard against legacy repr(bytes) strings
+                    if (fcontent.startswith("b'") or fcontent.startswith('b"')) and len(fcontent) > 100:
+                        try:
+                            import ast
+                            parsed_bytes = ast.literal_eval(fcontent)
+                            if isinstance(parsed_bytes, (bytes, bytearray)):
+                                with open(target_file, "wb") as f:
+                                    f.write(parsed_bytes)
+                                continue
+                        except Exception:
+                            pass
+                    with open(target_file, "w", encoding="utf-8") as f:
+                        f.write(fcontent)
+
         file_size = len(glb_bytes)
         formats = {
             "glb": f"/api/assets/{asset_id}/download/glb",
             "obj": f"/api/assets/{asset_id}/download/obj",
-            "stl": f"/api/assets/{asset_id}/download/stl"
+            "stl": f"/api/assets/{asset_id}/download/stl",
         }
+        if (asset_dir / "material.mtl").exists() or any(asset_dir.glob("*.mtl")):
+            formats["mtl"] = f"/api/assets/{asset_id}/download/mtl"
+        if (asset_dir / "material_0.png").exists() or any(asset_dir.glob("*.png")):
+            formats["png"] = f"/api/assets/{asset_id}/download/png"
+
+        # Sanitize attributes to store clean metadata instead of raw binary buffers
+        clean_attributes = self._sanitize_attributes(
+            attributes=attributes,
+            asset_dir=asset_dir,
+            asset_id=asset_id,
+        )
 
         metadata = AssetMetadata(
             id=asset_id,
@@ -132,7 +249,7 @@ class AssetStorageService:
             tags=tags or [style, provider],
             created_at=datetime.now(timezone.utc),
             is_demo=is_demo,
-            attributes=attributes or {}
+            attributes=clean_attributes,
         )
 
         current_index = self._load_index()
@@ -142,15 +259,34 @@ class AssetStorageService:
 
     def get_file_path(self, asset_id: str, fmt: str) -> Optional[Path]:
         fmt = fmt.lower()
-        if fmt not in ["glb", "obj", "stl"]:
+        if fmt not in ["glb", "obj", "stl", "mtl", "png"]:
             return None
         file_path = self.base_dir / asset_id / f"{asset_id}.{fmt}"
         if file_path.exists():
             return file_path
+        asset_folder = self.base_dir / asset_id
+        if not asset_folder.exists():
+            return None
+        # Check standard companion filenames
+        if fmt == "mtl":
+            alt = asset_folder / "material.mtl"
+            if alt.exists():
+                return alt
+            for p in asset_folder.glob("*.mtl"):
+                if p.exists():
+                    return p
+        if fmt == "png":
+            for candidate in ["material_0.png", "PolyGen_Material.png"]:
+                alt = asset_folder / candidate
+                if alt.exists():
+                    return alt
+            for p in asset_folder.glob("*.png"):
+                if p.exists():
+                    return p
         return None
 
     def create_bundle_zip(self, asset_id: str) -> Optional[bytes]:
-        """Creates an in-memory ZIP package containing all 3D formats (.glb, .obj, .stl) and metadata."""
+        """Creates an in-memory ZIP package containing all 3D formats (.glb, .obj, .stl), companions (.mtl, .png) and metadata."""
         asset = self.get_asset(asset_id)
         if not asset:
             return None
@@ -161,13 +297,25 @@ class AssetStorageService:
 
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            formats_included = []
             # 1. Add 3D format files
             for fmt in ["glb", "obj", "stl"]:
                 path = asset_dir / f"{asset_id}.{fmt}"
                 if path.exists():
                     zip_file.write(path, arcname=f"{asset.title.replace(' ', '_')}_{asset_id}.{fmt}")
+                    formats_included.append(fmt)
 
-            # 2. Add manifest.json
+            # 2. Add companion auxiliary files if present (e.g. material.mtl, material_0.png)
+            for companion in asset_dir.glob("*.mtl"):
+                zip_file.write(companion, arcname=companion.name)
+                if "mtl" not in formats_included:
+                    formats_included.append("mtl")
+            for companion in asset_dir.glob("*.png"):
+                zip_file.write(companion, arcname=companion.name)
+                if "png" not in formats_included:
+                    formats_included.append("png")
+
+            # 3. Add manifest.json
             manifest_data = {
                 "polygen_version": "1.0.0",
                 "asset_id": asset.id,
@@ -178,13 +326,13 @@ class AssetStorageService:
                 "poly_count": asset.poly_count,
                 "vertex_count": asset.vertex_count,
                 "created_at": asset.created_at.isoformat(),
-                "formats": ["glb", "obj", "stl"],
+                "formats": formats_included,
                 "license": "Creative Commons CC-BY 4.0",
                 "generator": "PolyGen Text-to-3D Synthesis Core"
             }
             zip_file.writestr("manifest.json", json.dumps(manifest_data, indent=2))
 
-            # 3. Add README.txt
+            # 4. Add README.txt
             readme_text = f"""==================================================
 POLYGEN 3D ASSET BUNDLE
 ==================================================
@@ -201,6 +349,7 @@ INCLUDED FILES:
 - *.glb: Binary glTF 2.0 (web, Three.js, Babylon.js, Unity)
 - *.obj: Wavefront OBJ (Blender, Maya, 3ds Max, Cinema4D)
 - *.stl: Stereolithography (3D Printing, slicing engines)
+- *.mtl / *.png: PBR material definition & companion textures (if applicable)
 - manifest.json: Complete technical metadata specification
 
 Exported from PolyGen 3D Studio:

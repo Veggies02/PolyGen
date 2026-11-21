@@ -17,6 +17,13 @@ venv/
 backend/storage/assets/*/*.glb
 backend/storage/assets/*/*.obj
 backend/storage/assets/*/*.stl
+backend/storage/assets/*/*.mtl
+backend/storage/assets/*/*.png
+backend/storage/textures/*.png
+backend/storage/textures/*.jpg
+backend/storage/textures/*.jpeg
+backend/storage/textures/*.webp
+!backend/storage/textures/.gitkeep
 
 # Environment
 .env
