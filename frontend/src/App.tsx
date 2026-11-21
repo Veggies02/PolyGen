@@ -58,6 +58,7 @@ export const App: React.FC = () => {
     materialCount: number;
     surfaceArea?: number;
     volume?: number;
+    animationClips?: string[];
   }>({
     polyCount: 0,
     vertexCount: 0,
@@ -88,6 +89,10 @@ export const App: React.FC = () => {
     lightingPreset: 'studio',
     backgroundColor: '#0c0e14',
     exposure: 1.1,
+    toneMapping: 'aces',
+    motionMode: 'hover-float',
+    playbackSpeed: 1.0,
+    studioBackdrop: 'studio-vignette',
   });
 
   // Studio Generation Settings

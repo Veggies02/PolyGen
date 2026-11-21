@@ -129,6 +129,69 @@ function getProceduralPatternTexture(pattern: string): THREE.CanvasTexture | nul
   return tex;
 }
 
+const backdropCache = new Map<string, THREE.CanvasTexture>();
+
+function getProceduralBackdropTexture(type?: string): THREE.CanvasTexture | null {
+  if (!type || type === 'void') return null;
+  if (backdropCache.has(type)) return backdropCache.get(type)!;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  const grad = ctx.createRadialGradient(256, 256, 15, 256, 256, 360);
+  if (type === 'studio-vignette') {
+    grad.addColorStop(0, '#2d3748');
+    grad.addColorStop(1, '#0b0f17');
+  } else if (type === 'cyber-grid') {
+    grad.addColorStop(0, '#0e2433');
+    grad.addColorStop(1, '#020617');
+  } else if (type === 'warm-sunset') {
+    grad.addColorStop(0, '#381e14');
+    grad.addColorStop(1, '#0c0a09');
+  } else if (type === 'blueprint') {
+    grad.addColorStop(0, '#0c4a6e');
+    grad.addColorStop(1, '#020617');
+  } else {
+    grad.addColorStop(0, '#1e293b');
+    grad.addColorStop(1, '#0c0e14');
+  }
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 512);
+
+  if (type === 'cyber-grid' || type === 'blueprint') {
+    ctx.strokeStyle = type === 'cyber-grid' ? 'rgba(6, 182, 212, 0.18)' : 'rgba(56, 189, 248, 0.15)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 512; i += 32) {
+      ctx.beginPath();
+      ctx.moveTo(i, 0); ctx.lineTo(i, 512);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(0, i); ctx.lineTo(512, i);
+      ctx.stroke();
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  backdropCache.set(type, tex);
+  return tex;
+}
+
+function getToneMappingConstant(tm?: string): THREE.ToneMapping {
+  switch (tm) {
+    case 'agx': return THREE.AgXToneMapping;
+    case 'cineon': return THREE.CineonToneMapping;
+    case 'neutral': return THREE.NeutralToneMapping;
+    case 'reinhard': return THREE.ReinhardToneMapping;
+    case 'linear': return THREE.LinearToneMapping;
+    case 'aces':
+    default:
+      return THREE.ACESFilmicToneMapping;
+  }
+}
+
 interface Canvas3DProps {
   modelUrl?: string | null;
   assetTitle?: string;
@@ -142,6 +205,7 @@ interface Canvas3DProps {
     materialCount: number;
     surfaceArea?: number;
     volume?: number;
+    animationClips?: string[];
   }) => void;
   onTransformChange?: (transform: TransformData) => void;
   explodeFactor?: number;
@@ -238,11 +302,30 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     Array<{ id: string; x: number; y: number; title: string; index: number; visible: boolean }>
   >([]);
   
-  // Animation / Turntable timeline
+  // Animation / Turntable timeline & Motion Engine
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentFrame, setCurrentFrame] = useState<number>(1);
   const [showDimensions, setShowDimensions] = useState<boolean>(false);
   const [liveBounds, setLiveBounds] = useState<{ x: number; y: number; z: number }>({ x: 1, y: 1, z: 1 });
+
+  // Skeletal Animation Mixer & Procedural Motion State
+  const clockRef = useRef<THREE.Clock>(new THREE.Clock());
+  const mixerRef = useRef<THREE.AnimationMixer | null>(null);
+  const clipsRef = useRef<THREE.AnimationClip[]>([]);
+  const activeActionRef = useRef<THREE.AnimationAction | null>(null);
+  const baseModelPosYRef = useRef<number>(0);
+  const baseModelScaleRef = useRef<THREE.Vector3>(new THREE.Vector3(1, 1, 1));
+  const isPlayingRef = useRef<boolean>(false);
+  isPlayingRef.current = isPlaying;
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+  const frameAccumulatorRef = useRef<number>(0);
+
+  const [availableClips, setAvailableClips] = useState<string[]>([]);
+  const [selectedClipIndex, setSelectedClipIndex] = useState<number>(0);
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(options.playbackSpeed || 1.0);
+  const playbackSpeedRef = useRef<number>(playbackSpeed);
+  playbackSpeedRef.current = playbackSpeed;
 
   // Sync external measurementData reset
   useEffect(() => {
@@ -271,7 +354,8 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     const height = container.clientHeight || 600;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(options.backgroundColor || '#0c0e14');
+    const initBackdrop = getProceduralBackdropTexture(options.studioBackdrop);
+    scene.background = initBackdrop || new THREE.Color(options.backgroundColor || '#0c0e14');
     sceneRef.current = scene;
 
     const perspCamera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
@@ -298,7 +382,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMapping = getToneMappingConstant(options.toneMapping);
     renderer.toneMappingExposure = options.exposure || 1.1;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -441,6 +525,41 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     let animationId: number;
     const animate = () => {
       animationId = requestAnimationFrame(animate);
+
+      const delta = clockRef.current.getDelta();
+      const elapsed = clockRef.current.getElapsedTime();
+
+      // Skeletal Animation Mixer & Procedural Presentation Engine
+      if (isPlayingRef.current) {
+        const speed = playbackSpeedRef.current;
+        if (mixerRef.current && clipsRef.current.length > 0) {
+          mixerRef.current.update(delta * speed);
+        } else if (modelGroupRef.current) {
+          const mode = optionsRef.current.motionMode || 'hover-float';
+          if (mode === 'hover-float') {
+            modelGroupRef.current.position.y = baseModelPosYRef.current + Math.sin(elapsed * 2.2 * speed) * 0.08;
+            modelGroupRef.current.rotation.z = Math.sin(elapsed * 1.5 * speed) * 0.03;
+          } else if (mode === 'turntable-spin') {
+            modelGroupRef.current.rotation.y += delta * 1.2 * speed;
+          } else if (mode === 'cinematic-pulse') {
+            const pulse = 1.0 + Math.sin(elapsed * 2.5 * speed) * 0.035;
+            modelGroupRef.current.scale.set(
+              baseModelScaleRef.current.x * pulse,
+              baseModelScaleRef.current.y * pulse,
+              baseModelScaleRef.current.z * pulse
+            );
+            modelGroupRef.current.rotation.y += delta * 0.5 * speed;
+          }
+        }
+
+        frameAccumulatorRef.current += delta * 24 * speed;
+        if (frameAccumulatorRef.current >= 1) {
+          const step = Math.floor(frameAccumulatorRef.current);
+          frameAccumulatorRef.current -= step;
+          setCurrentFrame((prev) => ((prev + step - 1) % 250) + 1);
+        }
+      }
+
       if (controlsRef.current) {
         controlsRef.current.update();
       }
@@ -1110,23 +1229,6 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     }
   };
 
-  // Timeline Scrubber
-  useEffect(() => {
-    let interval: any;
-    if (isPlaying) {
-      interval = setInterval(() => {
-        setCurrentFrame((prev) => {
-          const next = prev >= 250 ? 1 : prev + 1;
-          if (modelGroupRef.current) {
-            modelGroupRef.current.rotation.y = (next / 250) * Math.PI * 2;
-          }
-          return next;
-        });
-      }, 33);
-    }
-    return () => clearInterval(interval);
-  }, [isPlaying]);
-
   // Update Lighting Preset
   useEffect(() => {
     if (!lightsGroupRef.current) return;
@@ -1192,13 +1294,19 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     }
   }, [options.lightingPreset, options.lightAngle]);
 
-  // Update Background & Controls
+  // Update Background, Studio Backdrop, Tone Mapping & Controls
   useEffect(() => {
     if (sceneRef.current) {
-      sceneRef.current.background = new THREE.Color(options.backgroundColor);
+      const backdropTex = getProceduralBackdropTexture(options.studioBackdrop);
+      if (backdropTex) {
+        sceneRef.current.background = backdropTex;
+      } else {
+        sceneRef.current.background = new THREE.Color(options.backgroundColor);
+      }
     }
     if (rendererRef.current) {
       rendererRef.current.toneMappingExposure = options.exposure || 1.1;
+      rendererRef.current.toneMapping = getToneMappingConstant(options.toneMapping);
     }
     if (gridHelperRef.current) {
       gridHelperRef.current.visible = options.grid;
@@ -1207,7 +1315,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       controlsRef.current.autoRotate = options.autoRotate;
       controlsRef.current.autoRotateSpeed = 2.0;
     }
-  }, [options.backgroundColor, options.exposure, options.grid, options.autoRotate]);
+  }, [options.backgroundColor, options.exposure, options.grid, options.autoRotate, options.studioBackdrop, options.toneMapping]);
 
   const handleCaptureSnapshot = () => {
     if (!rendererRef.current || !sceneRef.current || !cameraRef.current) return;
@@ -1429,6 +1537,28 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           controlsRef.current.update();
         }
 
+        // Record baseline transformations for procedural levitation and pulse
+        baseModelPosYRef.current = object.position.y;
+        baseModelScaleRef.current.copy(object.scale);
+
+        // Rigged animation clips handling
+        clipsRef.current = gltf.animations || [];
+        let clipNames: string[] = [];
+        if (gltf.animations && gltf.animations.length > 0) {
+          clipNames = gltf.animations.map((c, i) => c.name || `Clip ${i + 1}`);
+          setAvailableClips(clipNames);
+          setSelectedClipIndex(0);
+          const mixer = new THREE.AnimationMixer(object);
+          mixerRef.current = mixer;
+          const action = mixer.clipAction(gltf.animations[0]);
+          action.play();
+          activeActionRef.current = action;
+        } else {
+          setAvailableClips([]);
+          mixerRef.current = null;
+          activeActionRef.current = null;
+        }
+
         if (onStatsCalculated) {
           onStatsCalculated({
             polyCount: Math.round(totalPolys),
@@ -1441,6 +1571,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
             materialCount: materialsSet.size,
             surfaceArea: Number(totalSurfaceArea.toFixed(3)),
             volume: Number(Math.abs(totalSignedVolume).toFixed(4)),
+            animationClips: clipNames,
           });
         }
 
@@ -2569,29 +2700,80 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
         )}
       </div>
 
-      {/* 3. BOTTOM MIXAR TIMELINE / SCRUBBER BAR */}
-      <div className="h-10 px-4 bg-slate-950 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400 z-20 shrink-0">
-        <div className="flex items-center gap-2">
+      {/* 3. BOTTOM MIXAR TIMELINE & MOTION CONTROL BAR */}
+      <div className="h-11 px-4 bg-slate-950 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400 z-20 shrink-0 gap-3">
+        {/* Playback Controls & Mode Selector */}
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={() => setIsPlaying(!isPlaying)}
-            className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 transition-colors"
-            title={isPlaying ? 'Pause' : 'Play animation turntable'}
+            className={`p-1.5 rounded-lg border transition-all ${
+              isPlaying
+                ? 'bg-lime-950/60 border-lime-500/60 text-lime-400 shadow-sm'
+                : 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-slate-800'
+            }`}
+            title={isPlaying ? 'Pause Motion (Space)' : 'Play Motion (Space)'}
           >
-            {isPlaying ? <Pause className="w-3.5 h-3.5 text-lime-400" /> : <Play className="w-3.5 h-3.5 text-lime-400 fill-lime-400" />}
+            {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 fill-lime-400" />}
           </button>
+
           <button
             onClick={() => {
               setCurrentFrame(1);
-              if (modelGroupRef.current) modelGroupRef.current.rotation.y = 0;
+              if (modelGroupRef.current) {
+                modelGroupRef.current.position.y = baseModelPosYRef.current;
+                modelGroupRef.current.scale.copy(baseModelScaleRef.current);
+                modelGroupRef.current.rotation.set(0, 0, 0);
+              }
+              if (mixerRef.current && activeActionRef.current) {
+                activeActionRef.current.reset();
+              }
             }}
-            className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
-            title="Reset frame"
+            className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 transition-colors"
+            title="Reset Frame & Pose"
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
+
+          {/* Embedded Skeletal Clip Selector OR Procedural Motion Mode Selector */}
+          {availableClips.length > 0 ? (
+            <select
+              value={selectedClipIndex}
+              onChange={(e) => {
+                const idx = Number(e.target.value);
+                setSelectedClipIndex(idx);
+                if (mixerRef.current && clipsRef.current[idx]) {
+                  activeActionRef.current?.stop();
+                  const act = mixerRef.current.clipAction(clipsRef.current[idx]);
+                  act.reset().play();
+                  activeActionRef.current = act;
+                }
+              }}
+              className="bg-slate-900 border border-lime-500/40 text-lime-300 font-mono text-[11px] rounded-lg px-2 py-1 focus:outline-none cursor-pointer"
+              title="Active Skeletal Animation Track"
+            >
+              {availableClips.map((name, i) => (
+                <option key={i} value={i}>
+                  ▶ {name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <select
+              value={options.motionMode || 'hover-float'}
+              onChange={(e) => onOptionsChange?.({ ...options, motionMode: e.target.value as any })}
+              className="bg-slate-900 border border-slate-800 text-slate-300 text-[11px] rounded-lg px-2 py-1 focus:outline-none cursor-pointer"
+              title="Procedural Presentation Motion"
+            >
+              <option value="hover-float">Hover Float (Sine)</option>
+              <option value="turntable-spin">360° Turntable</option>
+              <option value="cinematic-pulse">Cinematic Pulse</option>
+              <option value="none">Static Pose</option>
+            </select>
+          )}
         </div>
 
-        <div className="flex-1 max-w-xl mx-4 flex items-center gap-3">
+        {/* Timeline Scrubber */}
+        <div className="flex-1 max-w-xl mx-2 flex items-center gap-3">
           <span className="font-mono text-[11px] text-lime-400 font-bold w-7 text-right">{currentFrame}</span>
           <input
             type="range"
@@ -2601,7 +2783,12 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
             onChange={(e) => {
               const val = Number(e.target.value);
               setCurrentFrame(val);
-              if (modelGroupRef.current) {
+              if (mixerRef.current && activeActionRef.current) {
+                const clip = activeActionRef.current.getClip();
+                if (clip) {
+                  mixerRef.current.setTime((val / 250) * clip.duration);
+                }
+              } else if (modelGroupRef.current) {
                 modelGroupRef.current.rotation.y = (val / 250) * Math.PI * 2;
               }
             }}
@@ -2610,9 +2797,53 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           <span className="font-mono text-[11px] text-slate-500">250</span>
         </div>
 
-        <div className="flex items-center gap-3 text-[11px] font-mono">
-          <span className="text-slate-500">Start: <span className="text-slate-300">1</span></span>
-          <span className="text-slate-500">End: <span className="text-slate-300">250</span></span>
+        {/* Speed Multiplier & Studio Backdrop Cycle */}
+        <div className="flex items-center gap-2 shrink-0 text-[11px] font-mono">
+          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5">
+            {[0.5, 1.0, 1.5, 2.0].map((s) => (
+              <button
+                key={s}
+                onClick={() => {
+                  setPlaybackSpeed(s);
+                  onOptionsChange?.({ ...options, playbackSpeed: s });
+                }}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all ${
+                  playbackSpeed === s
+                    ? 'bg-amber-400 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {s}x
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => {
+              const backdrops: Array<NonNullable<ViewerOptions['studioBackdrop']>> = [
+                'void',
+                'studio-vignette',
+                'cyber-grid',
+                'warm-sunset',
+                'blueprint',
+              ];
+              const curIdx = backdrops.indexOf(options.studioBackdrop || 'void');
+              const next = backdrops[(curIdx + 1) % backdrops.length];
+              onOptionsChange?.({ ...options, studioBackdrop: next });
+            }}
+            className="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-800 text-[10px] text-cyan-300 font-sans font-medium transition-colors"
+            title="Cycle Studio Backdrop Environment"
+          >
+            {options.studioBackdrop === 'studio-vignette'
+              ? 'Studio Cyc'
+              : options.studioBackdrop === 'cyber-grid'
+              ? 'Cyber Grid'
+              : options.studioBackdrop === 'warm-sunset'
+              ? 'Warm Dusk'
+              : options.studioBackdrop === 'blueprint'
+              ? 'CAD Blueprint'
+              : 'Deep Void'}
+          </button>
         </div>
       </div>
     </div>

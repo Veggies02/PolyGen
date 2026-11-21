@@ -25,7 +25,8 @@ import {
   Printer,
   CheckCircle2,
   AlertTriangle,
-  Activity
+  Activity,
+  Play
 } from 'lucide-react';
 import { MaterialShaderStudio } from '../studio/MaterialShaderStudio';
 
@@ -38,6 +39,7 @@ interface ModelInspectorProps {
     materialCount: number;
     surfaceArea?: number;
     volume?: number;
+    animationClips?: string[];
   };
   options?: ViewerOptions;
   onOptionsChange?: (options: ViewerOptions) => void;
@@ -638,6 +640,49 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
                 </span>
               </div>
             </div>
+          </div>
+
+          {/* Skeletal Rig & Motion Animation Diagnostics */}
+          <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-white flex items-center gap-1.5">
+                <Play className="w-3.5 h-3.5 text-lime-400" />
+                Rigging & Motion Telemetry
+              </span>
+              {liveStats?.animationClips && liveStats.animationClips.length > 0 ? (
+                <span className="flex items-center gap-1 text-[10px] font-semibold text-lime-400 bg-lime-950/50 border border-lime-500/40 px-2 py-0.5 rounded-full">
+                  <CheckCircle2 className="w-3 h-3" />
+                  Rigged Mesh
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-[10px] font-semibold text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-full">
+                  Static Polyhedral
+                </span>
+              )}
+            </div>
+
+            {liveStats?.animationClips && liveStats.animationClips.length > 0 ? (
+              <div className="space-y-1.5 pt-1 border-t border-slate-800/60">
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-400">Embedded Skeletal Clips:</span>
+                  <span className="font-mono text-lime-400 font-bold">{liveStats.animationClips.length}</span>
+                </div>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {liveStats.animationClips.map((clip, idx) => (
+                    <span
+                      key={idx}
+                      className="px-2 py-0.5 rounded-md bg-lime-950/40 border border-lime-500/30 text-[10px] text-lime-300 font-mono"
+                    >
+                      ▶ {clip}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="pt-1 border-t border-slate-800/60 text-[10px] text-slate-400 leading-relaxed">
+                Procedural turntable rotation, hover levitation buoyancy, and harmonic breathing scale active in viewport.
+              </div>
+            )}
           </div>
 
           {/* Tags */}

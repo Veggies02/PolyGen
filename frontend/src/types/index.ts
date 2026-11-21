@@ -84,6 +84,10 @@ export interface ClippingOptions {
   showPlane: boolean;
 }
 
+export type ToneMappingMode = 'aces' | 'agx' | 'cineon' | 'neutral' | 'reinhard' | 'linear';
+export type MotionMode = 'none' | 'hover-float' | 'turntable-spin' | 'cinematic-pulse' | 'model-clip';
+export type StudioBackdrop = 'void' | 'studio-vignette' | 'cyber-grid' | 'warm-sunset' | 'blueprint';
+
 export interface ViewerOptions {
   wireframe: boolean;
   wireframeOverlay?: boolean;
@@ -97,6 +101,20 @@ export interface ViewerOptions {
   cameraProjection?: 'perspective' | 'orthographic';
   clipping?: ClippingOptions;
   materials?: MaterialCustomization;
+  toneMapping?: ToneMappingMode;
+  motionMode?: MotionMode;
+  playbackSpeed?: number;
+  studioBackdrop?: StudioBackdrop;
+}
+
+export interface LiveGeometryStats {
+  polyCount: number;
+  vertexCount: number;
+  dimensions: { x: number; y: number; z: number };
+  materialCount: number;
+  surfaceArea?: number;
+  volume?: number;
+  animationClips?: string[];
 }
 
 export interface TransformData {
