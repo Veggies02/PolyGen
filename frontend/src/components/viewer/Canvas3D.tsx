@@ -33,7 +33,8 @@ import {
   MapPin,
   Crosshair,
   Trash2,
-  Sun
+  Sun,
+  LayoutGrid
 } from 'lucide-react';
 import { api } from '../../api/client';
 import type { ViewerOptions, TransformData, ModelAnnotation, MeasurementData } from '../../types';
@@ -327,6 +328,15 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   const playbackSpeedRef = useRef<number>(playbackSpeed);
   playbackSpeedRef.current = playbackSpeed;
 
+  // Quad CAD Multi-View Viewports State & Fixed Orthographic Cameras
+  const [isQuadView, setIsQuadView] = useState<boolean>(false);
+  const isQuadViewRef = useRef<boolean>(false);
+  isQuadViewRef.current = isQuadView;
+
+  const topCameraRef = useRef<THREE.OrthographicCamera | null>(null);
+  const frontCameraRef = useRef<THREE.OrthographicCamera | null>(null);
+  const rightCameraRef = useRef<THREE.OrthographicCamera | null>(null);
+
   // Sync external measurementData reset
   useEffect(() => {
     if (measurementData === null) {
@@ -378,6 +388,23 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
 
     const initialCamera = options.cameraProjection === 'orthographic' ? orthoCamera : perspCamera;
     activeCameraRef.current = initialCamera;
+
+    // 3 Fixed Orthographic Cameras for Quad View CAD
+    const topCam = new THREE.OrthographicCamera(-2.5, 2.5, 2.5, -2.5, 0.1, 100);
+    topCam.position.set(0, 10, 0);
+    topCam.up.set(0, 0, -1);
+    topCam.lookAt(0, 0, 0);
+    topCameraRef.current = topCam;
+
+    const frontCam = new THREE.OrthographicCamera(-2.5, 2.5, 2.5, -2.5, 0.1, 100);
+    frontCam.position.set(0, 0, 10);
+    frontCam.lookAt(0, 0, 0);
+    frontCameraRef.current = frontCam;
+
+    const rightCam = new THREE.OrthographicCamera(-2.5, 2.5, 2.5, -2.5, 0.1, 100);
+    rightCam.position.set(10, 0, 0);
+    rightCam.lookAt(0, 0, 0);
+    rightCameraRef.current = rightCam;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     renderer.setSize(width, height);
@@ -569,7 +596,51 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
         wireframeOverlayGroupRef.current.scale.copy(modelGroupRef.current.scale);
       }
       const cam = activeCameraRef.current || cameraRef.current;
-      if (rendererRef.current && sceneRef.current && cam) {
+      if (
+        isQuadViewRef.current &&
+        containerRef.current &&
+        rendererRef.current &&
+        sceneRef.current &&
+        topCameraRef.current &&
+        frontCameraRef.current &&
+        rightCameraRef.current &&
+        cam
+      ) {
+        const cw = containerRef.current.clientWidth;
+        const ch = containerRef.current.clientHeight;
+        const halfW = Math.floor(cw / 2);
+        const halfH = Math.floor(ch / 2);
+
+        rendererRef.current.setScissorTest(true);
+
+        // 1. Top-Left: Top View (Orthographic X/Z)
+        rendererRef.current.setViewport(0, halfH, halfW, halfH);
+        rendererRef.current.setScissor(0, halfH, halfW, halfH);
+        rendererRef.current.render(sceneRef.current, topCameraRef.current);
+
+        // 2. Top-Right: 3D Perspective (Orbit)
+        rendererRef.current.setViewport(halfW, halfH, halfW, halfH);
+        rendererRef.current.setScissor(halfW, halfH, halfW, halfH);
+        rendererRef.current.render(sceneRef.current, cam);
+
+        // 3. Bottom-Left: Front View (Orthographic X/Y)
+        rendererRef.current.setViewport(0, 0, halfW, halfH);
+        rendererRef.current.setScissor(0, 0, halfW, halfH);
+        rendererRef.current.render(sceneRef.current, frontCameraRef.current);
+
+        // 4. Bottom-Right: Right View (Orthographic Y/Z)
+        rendererRef.current.setViewport(halfW, 0, halfW, halfH);
+        rendererRef.current.setScissor(halfW, 0, halfW, halfH);
+        rendererRef.current.render(sceneRef.current, rightCameraRef.current);
+
+        rendererRef.current.setScissorTest(false);
+      } else if (rendererRef.current && sceneRef.current && cam) {
+        rendererRef.current.setViewport(
+          0,
+          0,
+          containerRef.current?.clientWidth || 800,
+          containerRef.current?.clientHeight || 600
+        );
         rendererRef.current.render(sceneRef.current, cam);
       }
       drawOrientationGizmo();
@@ -1160,6 +1231,8 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       } else if (e.key === 'c' || e.key === 'C') {
         const next = (options.cameraProjection || 'perspective') === 'perspective' ? 'orthographic' : 'perspective';
         onOptionsChange?.({ ...options, cameraProjection: next });
+      } else if (e.key === 'v' || e.key === 'V') {
+        setIsQuadView((prev) => !prev);
       } else if (e.code === 'Space') {
         e.preventDefault();
         setIsPlaying((prev) => !prev);
@@ -1537,6 +1610,25 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           controlsRef.current.update();
         }
 
+        // Frame Orthographic Quad Cameras to Model Bounds
+        if (topCameraRef.current && frontCameraRef.current && rightCameraRef.current) {
+          const maxDim = Math.max(size.x, size.y, size.z, 1.0);
+          const halfDim = (maxDim / 2) * 1.35;
+          [topCameraRef.current, frontCameraRef.current, rightCameraRef.current].forEach((cam) => {
+            cam.left = -halfDim;
+            cam.right = halfDim;
+            cam.top = halfDim;
+            cam.bottom = -halfDim;
+            cam.updateProjectionMatrix();
+          });
+          topCameraRef.current.position.set(0, maxDim * 3, 0);
+          topCameraRef.current.lookAt(0, size.y / 2, 0);
+          frontCameraRef.current.position.set(0, size.y / 2, maxDim * 3);
+          frontCameraRef.current.lookAt(0, size.y / 2, 0);
+          rightCameraRef.current.position.set(maxDim * 3, size.y / 2, 0);
+          rightCameraRef.current.lookAt(0, size.y / 2, 0);
+        }
+
         // Record baseline transformations for procedural levitation and pulse
         baseModelPosYRef.current = object.position.y;
         baseModelScaleRef.current.copy(object.scale);
@@ -1770,6 +1862,20 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
             }`}
           >
             Texturing
+          </button>
+
+          {/* Quad CAD Viewport Toggle */}
+          <button
+            onClick={() => setIsQuadView(!isQuadView)}
+            className={`px-3 py-1 rounded-md transition-all flex items-center gap-1.5 ${
+              isQuadView
+                ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-slate-950 font-bold shadow-md shadow-cyan-500/20'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title="Toggle Quad View CAD Viewports (Top, Perspective, Front, Right) [V]"
+          >
+            <LayoutGrid className="w-3.5 h-3.5" />
+            <span>Quad CAD</span>
           </button>
         </div>
 
@@ -2023,6 +2129,35 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
         }}
       >
         <div ref={containerRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
+
+        {/* Quad CAD Viewport HUD Crosshairs & Axis Labels */}
+        {isQuadView && (
+          <div className="absolute inset-0 pointer-events-none z-10 flex flex-col justify-between">
+            {/* Dividing Crosshairs */}
+            <div className="absolute top-1/2 left-0 right-0 h-px bg-cyan-500/25 shadow-sm" />
+            <div className="absolute left-1/2 top-0 bottom-0 w-px bg-cyan-500/25 shadow-sm" />
+
+            {/* Top Row Labels */}
+            <div className="flex items-center justify-between p-3 text-[10px] font-mono font-bold tracking-wider">
+              <span className="px-2 py-0.5 rounded bg-slate-950/85 border border-cyan-500/40 text-cyan-300 backdrop-blur-sm">
+                TOP (X/Z Ortho)
+              </span>
+              <span className="px-2 py-0.5 rounded bg-slate-950/85 border border-amber-500/40 text-amber-300 backdrop-blur-sm">
+                3D PERSPECTIVE (Orbit)
+              </span>
+            </div>
+
+            {/* Bottom Row Labels */}
+            <div className="flex items-center justify-between p-3 text-[10px] font-mono font-bold tracking-wider pb-16">
+              <span className="px-2 py-0.5 rounded bg-slate-950/85 border border-cyan-500/40 text-cyan-300 backdrop-blur-sm">
+                FRONT (X/Y Ortho)
+              </span>
+              <span className="px-2 py-0.5 rounded bg-slate-950/85 border border-cyan-500/40 text-cyan-300 backdrop-blur-sm">
+                RIGHT (Y/Z Ortho)
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Drag & Drop Visual Overlay */}
         {isDragOver && (

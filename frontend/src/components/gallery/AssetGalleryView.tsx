@@ -18,8 +18,10 @@ import {
   Trash2,
   CheckSquare,
   Check,
-  CheckCheck
+  CheckCheck,
+  GitCompare
 } from 'lucide-react';
+import { ModelCompareModal } from '../studio/ModelCompareModal';
 
 interface AssetGalleryViewProps {
   assets: Asset[];
@@ -50,6 +52,7 @@ export const AssetGalleryView: React.FC<AssetGalleryViewProps> = ({
   const [gridZoom, setGridZoom] = useState<number>(4);
   const [isMultiSelectMode, setIsMultiSelectMode] = useState<boolean>(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [comparePair, setComparePair] = useState<[Asset, Asset] | null>(null);
 
   const toggleSelectAsset = (id: string) => {
     setSelectedIds((prev) => {
@@ -401,6 +404,21 @@ export const AssetGalleryView: React.FC<AssetGalleryViewProps> = ({
               <span className="font-semibold text-slate-200">Selected</span>
             </div>
             <div className="h-4 w-px bg-slate-800" />
+            {selectedIds.size === 2 && (
+              <button
+                onClick={() => {
+                  const targets = assets.filter((a) => selectedIds.has(a.id));
+                  if (targets.length === 2) {
+                    setComparePair([targets[0], targets[1]]);
+                  }
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-slate-950 font-bold flex items-center gap-1.5 shadow-md shadow-cyan-500/30 transition-all animate-pulse"
+                title="Open 3D Model A/B Diff Comparison Studio"
+              >
+                <GitCompare className="w-3.5 h-3.5" />
+                <span>Compare 3D Diff (A/B)</span>
+              </button>
+            )}
             <button
               onClick={handleBatchDownloadGlb}
               className="px-3 py-1.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold flex items-center gap-1.5 shadow-sm transition-all"
@@ -524,6 +542,21 @@ export const AssetGalleryView: React.FC<AssetGalleryViewProps> = ({
               <span>Download Complete Asset Bundle (.ZIP)</span>
             </a>
 
+            {/* Compare against another model button */}
+            {assets.length > 1 && (
+              <button
+                onClick={() => {
+                  const other = assets.find((a) => a.id !== selectedAsset.id) || assets[0];
+                  setComparePair([selectedAsset, other]);
+                  setSelectedAsset(null);
+                }}
+                className="w-full py-2 mb-2 rounded-xl bg-cyan-950/40 hover:bg-cyan-900/60 border border-cyan-500/30 text-cyan-300 font-semibold flex items-center justify-center gap-2 text-xs transition-all shadow-sm"
+              >
+                <GitCompare className="w-3.5 h-3.5" />
+                <span>Compare 3D Diff with Next Model</span>
+              </button>
+            )}
+
             <div className="flex items-center gap-2">
               <button
                 onClick={() => {
@@ -555,6 +588,14 @@ export const AssetGalleryView: React.FC<AssetGalleryViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* 3D Model A/B Diff Comparison Studio Modal */}
+      <ModelCompareModal
+        isOpen={Boolean(comparePair)}
+        onClose={() => setComparePair(null)}
+        assetA={comparePair?.[0] || null}
+        assetB={comparePair?.[1] || null}
+      />
     </div>
   );
 };
