@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ViewerOptions, MaterialCustomization } from '../../types';
+import type { ViewerOptions, MaterialCustomization, ToneMappingMode, StudioBackdrop, MotionMode } from '../../types';
 import { 
   Palette, 
   Sun, 
@@ -8,7 +8,10 @@ import {
   Sparkles,
   Layers,
   Box,
-  Compass
+  Compass,
+  Film,
+  Play,
+  Image as ImageIcon
 } from 'lucide-react';
 
 interface MaterialShaderStudioProps {
@@ -545,7 +548,102 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
         </div>
       </div>
 
-      {/* 6. Snapshot & Capture Studio */}
+      {/* 6. Studio Backdrop & Cyc Environment */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <ImageIcon className="w-3.5 h-3.5 text-cyan-400" />
+          <span className="text-[10px] uppercase font-bold text-slate-500">
+            Studio Backdrop & Cyc Wall
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          {[
+            { id: 'void' as StudioBackdrop, label: 'Deep Void', desc: 'Clean dark backdrop' },
+            { id: 'studio-vignette' as StudioBackdrop, label: 'Studio Cyc', desc: 'Radial spotlight vignette' },
+            { id: 'cyber-grid' as StudioBackdrop, label: 'Cyber Grid', desc: 'Tron luminescent matrix' },
+            { id: 'warm-sunset' as StudioBackdrop, label: 'Warm Dusk', desc: 'Amber atmospheric glow' },
+            { id: 'blueprint' as StudioBackdrop, label: 'CAD Blueprint', desc: 'Technical engineering grid' },
+          ].map((b) => (
+            <button
+              key={b.id}
+              onClick={() => onOptionsChange({ ...options, studioBackdrop: b.id })}
+              className={`p-2 rounded-xl text-left border transition-all ${
+                (options.studioBackdrop || 'void') === b.id
+                  ? 'bg-cyan-950/50 border-cyan-500/70 text-white shadow-sm'
+                  : 'bg-slate-900/60 border-slate-800/80 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span className="text-[11px] font-semibold block">{b.label}</span>
+              <span className="text-[9px] text-slate-500">{b.desc}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 7. Tone Mapping & Color Science */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <Film className="w-3.5 h-3.5 text-lime-400" />
+          <span className="text-[10px] uppercase font-bold text-slate-500">
+            Color Science & Tone Mapping
+          </span>
+        </div>
+        <div className="grid grid-cols-3 gap-1.5">
+          {[
+            { id: 'aces' as ToneMappingMode, label: 'ACES Filmic' },
+            { id: 'agx' as ToneMappingMode, label: 'AgX Gamut' },
+            { id: 'neutral' as ToneMappingMode, label: 'Neutral PBR' },
+            { id: 'cineon' as ToneMappingMode, label: 'Cineon Log' },
+            { id: 'reinhard' as ToneMappingMode, label: 'Reinhard' },
+            { id: 'linear' as ToneMappingMode, label: 'Linear Raw' },
+          ].map((tm) => (
+            <button
+              key={tm.id}
+              onClick={() => onOptionsChange({ ...options, toneMapping: tm.id })}
+              className={`p-1.5 rounded-lg border text-center transition-all ${
+                (options.toneMapping || 'aces') === tm.id
+                  ? 'bg-lime-950/50 border-lime-500/70 text-lime-300 font-semibold'
+                  : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <div className="text-[10px] truncate">{tm.label}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 8. Procedural Presentation Motion */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <Play className="w-3.5 h-3.5 text-amber-400" />
+          <span className="text-[10px] uppercase font-bold text-slate-500">
+            Presentation Motion & Turntable
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          {[
+            { id: 'hover-float' as MotionMode, label: 'Hover Float', desc: 'Sine-wave levitation & roll' },
+            { id: 'turntable-spin' as MotionMode, label: '360° Turntable', desc: 'Smooth continuous orbit' },
+            { id: 'cinematic-pulse' as MotionMode, label: 'Cinematic Pulse', desc: 'Harmonic breathing scale' },
+            { id: 'none' as MotionMode, label: 'Static Lock', desc: 'Fixed coordinates' },
+          ].map((m) => (
+            <button
+              key={m.id}
+              onClick={() => onOptionsChange({ ...options, motionMode: m.id })}
+              className={`p-2 rounded-xl text-left border transition-all ${
+                (options.motionMode || 'hover-float') === m.id
+                  ? 'bg-amber-950/50 border-amber-500/70 text-amber-300 shadow-sm'
+                  : 'bg-slate-900/60 border-slate-800/80 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <span className="text-[11px] font-semibold block">{m.label}</span>
+              <span className="text-[9px] text-slate-500">{m.desc}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 9. Snapshot & Capture Studio */}
       <div className="pt-2 border-t border-slate-800">
         <button
           onClick={onCaptureSnapshot}
