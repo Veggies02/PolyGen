@@ -640,6 +640,47 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
                 </span>
               </div>
             </div>
+
+            {/* Quick Diagnostic Shading Action */}
+            <div className="flex items-center gap-1.5 pt-1.5 border-t border-slate-800/60">
+              <button
+                onClick={() =>
+                  options &&
+                  onOptionsChange?.({
+                    ...options,
+                    shadingMode: options.shadingMode === 'face-orientation' ? 'pbr' : 'face-orientation',
+                  })
+                }
+                className={`flex-1 py-1 px-2 rounded-lg text-[10px] font-medium flex items-center justify-center gap-1.5 border transition-all ${
+                  options?.shadingMode === 'face-orientation'
+                    ? 'bg-sky-950/60 border-sky-500/80 text-sky-300 shadow-sm'
+                    : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
+                }`}
+                title="Verify face normal directions (Blue: Outside, Red: Inverted)"
+              >
+                <Eye className="w-3 h-3 text-sky-400" />
+                <span>Face Normals (Blue/Red)</span>
+              </button>
+
+              <button
+                onClick={() =>
+                  options &&
+                  onOptionsChange?.({
+                    ...options,
+                    shadingMode: options.shadingMode === 'curvature' ? 'pbr' : 'curvature',
+                  })
+                }
+                className={`flex-1 py-1 px-2 rounded-lg text-[10px] font-medium flex items-center justify-center gap-1.5 border transition-all ${
+                  options?.shadingMode === 'curvature'
+                    ? 'bg-amber-950/60 border-amber-500/80 text-amber-300 shadow-sm'
+                    : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-700'
+                }`}
+                title="Mean surface curvature heatmap to spot sharp creases and ridges"
+              >
+                <Activity className="w-3 h-3 text-amber-400" />
+                <span>Curvature Heatmap</span>
+              </button>
+            </div>
           </div>
 
           {/* Skeletal Rig & Motion Animation Diagnostics */}

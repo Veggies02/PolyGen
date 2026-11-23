@@ -1302,7 +1302,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     }
   };
 
-  // Update Lighting Preset
+  // Update Lighting Rig & Presets
   useEffect(() => {
     if (!lightsGroupRef.current) return;
     const group = lightsGroupRef.current;
@@ -1314,12 +1314,61 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     const keyZ = Math.sin(rad) * 7.0;
     const keyY = 6.5;
 
-    if (options.lightingPreset === 'cyberpunk') {
+    const fillX = -keyX * 0.8;
+    const fillY = 3.0;
+    const fillZ = keyZ * 0.5;
+
+    const rimX = 0;
+    const rimY = 5.0;
+    const rimZ = -5.0;
+
+    const rig = options.lightingRig;
+    const castShadows = rig?.shadows !== false;
+
+    if (rig && (rig.keyColor || rig.fillColor || rig.rimColor || rig.keyIntensity !== undefined)) {
+      // Custom 3-Point Light Rig
+      const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+      group.add(ambient);
+
+      const keyCol = new THREE.Color(rig.keyColor || '#ffffff');
+      const keyInt = rig.keyIntensity ?? 2.4;
+      const keyLight = new THREE.DirectionalLight(keyCol, keyInt);
+      keyLight.position.set(keyX, keyY, keyZ);
+      keyLight.castShadow = castShadows;
+      group.add(keyLight);
+
+      const fillCol = new THREE.Color(rig.fillColor || '#94a3b8');
+      const fillInt = rig.fillIntensity ?? 1.2;
+      const fillLight = new THREE.DirectionalLight(fillCol, fillInt);
+      fillLight.position.set(fillX, fillY, fillZ);
+      group.add(fillLight);
+
+      const rimCol = new THREE.Color(rig.rimColor || '#38bdf8');
+      const rimInt = rig.rimIntensity ?? 1.4;
+      const rimLight = new THREE.DirectionalLight(rimCol, rimInt);
+      rimLight.position.set(rimX, rimY, rimZ);
+      group.add(rimLight);
+
+      if (rig.showLightGizmos) {
+        const gizmoGeo = new THREE.SphereGeometry(0.18, 12, 12);
+        const kGizmo = new THREE.Mesh(gizmoGeo, new THREE.MeshBasicMaterial({ color: keyCol }));
+        kGizmo.position.set(keyX, keyY, keyZ);
+        group.add(kGizmo);
+
+        const fGizmo = new THREE.Mesh(gizmoGeo, new THREE.MeshBasicMaterial({ color: fillCol }));
+        fGizmo.position.set(fillX, fillY, fillZ);
+        group.add(fGizmo);
+
+        const rGizmo = new THREE.Mesh(gizmoGeo, new THREE.MeshBasicMaterial({ color: rimCol }));
+        rGizmo.position.set(rimX, rimY, rimZ);
+        group.add(rGizmo);
+      }
+    } else if (options.lightingPreset === 'cyberpunk') {
       const ambient = new THREE.AmbientLight(0x0f172a, 0.8);
       group.add(ambient);
       const cyanKey = new THREE.DirectionalLight(0x00f0ff, 2.8);
       cyanKey.position.set(keyX, keyY, keyZ);
-      cyanKey.castShadow = true;
+      cyanKey.castShadow = castShadows;
       group.add(cyanKey);
       const magentaRim = new THREE.DirectionalLight(0xec4899, 2.5);
       magentaRim.position.set(-keyX, 3, -keyZ);
@@ -1332,7 +1381,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       group.add(ambient);
       const amberKey = new THREE.DirectionalLight(0xfbbf24, 3.2);
       amberKey.position.set(keyX, keyY, keyZ);
-      amberKey.castShadow = true;
+      amberKey.castShadow = castShadows;
       group.add(amberKey);
       const orangeFill = new THREE.DirectionalLight(0xf97316, 1.5);
       orangeFill.position.set(-keyX * 0.7, 2, -keyZ * 0.7);
@@ -1345,7 +1394,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       group.add(ambient);
       const starkDir = new THREE.DirectionalLight(0xf8fafc, 3.8);
       starkDir.position.set(keyX, keyY, keyZ);
-      starkDir.castShadow = true;
+      starkDir.castShadow = castShadows;
       group.add(starkDir);
       const blueSpec = new THREE.DirectionalLight(0x38bdf8, 1.0);
       blueSpec.position.set(-keyX * 0.8, 2, -keyZ * 0.8);
@@ -1356,16 +1405,16 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       group.add(ambient);
       const keyLight = new THREE.DirectionalLight(0xffffff, 2.4);
       keyLight.position.set(keyX, keyY, keyZ);
-      keyLight.castShadow = true;
+      keyLight.castShadow = castShadows;
       group.add(keyLight);
       const fillLight = new THREE.DirectionalLight(0x94a3b8, 1.2);
-      fillLight.position.set(-keyX * 0.8, 3, keyZ * 0.5);
+      fillLight.position.set(fillX, fillY, fillZ);
       group.add(fillLight);
       const rimLight = new THREE.DirectionalLight(0x38bdf8, 1.2);
-      rimLight.position.set(0, 5, -5);
+      rimLight.position.set(rimX, rimY, rimZ);
       group.add(rimLight);
     }
-  }, [options.lightingPreset, options.lightAngle]);
+  }, [options.lightingPreset, options.lightAngle, options.lightingRig]);
 
   // Update Background, Studio Backdrop, Tone Mapping & Controls
   useEffect(() => {
@@ -1714,35 +1763,7 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           return;
         }
 
-        if (options.materials && options.materials.preset !== 'default') {
-          const mat = options.materials;
-          const isGlass = mat.preset === 'frosted-glass' || mat.preset === 'emerald-gem';
-          const physicalMat = new THREE.MeshPhysicalMaterial({
-            color: new THREE.Color(mat.color),
-            metalness: mat.metalness,
-            roughness: mat.roughness,
-            clearcoat: mat.clearcoat,
-            clearcoatRoughness: 0.1,
-            transmission: mat.transmission ?? (mat.preset === 'frosted-glass' ? 0.92 : mat.preset === 'emerald-gem' ? 0.85 : 0),
-            ior: mat.ior ?? (mat.preset === 'frosted-glass' ? 1.52 : mat.preset === 'emerald-gem' ? 1.6 : 1.5),
-            thickness: isGlass || (mat.transmission && mat.transmission > 0) ? 1.2 : 0,
-            wireframe: options.wireframe,
-          });
-          if (mat.emissiveIntensity > 0) {
-            physicalMat.emissive = new THREE.Color(mat.emissiveColor || '#000000');
-            physicalMat.emissiveIntensity = mat.emissiveIntensity;
-          }
-          if (mat.proceduralPattern && mat.proceduralPattern !== 'none') {
-            const patTex = getProceduralPatternTexture(mat.proceduralPattern);
-            if (patTex) {
-              physicalMat.map = patTex;
-              physicalMat.roughnessMap = patTex;
-            }
-          }
-          mesh.material = physicalMat;
-          return;
-        }
-
+        // If non-default diagnostic shading mode is selected, prioritize it over material presets
         if (options.shadingMode === 'clay') {
           mesh.material = new THREE.MeshStandardMaterial({
             color: 0xc4c9d4,
@@ -1753,6 +1774,67 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
         } else if (options.shadingMode === 'normals') {
           mesh.material = new THREE.MeshNormalMaterial({
             wireframe: options.wireframe,
+          });
+        } else if (options.shadingMode === 'face-orientation') {
+          // Diagnostic Blender-style Face Orientation: Blue for front-facing, Crimson Red for inverted/back-facing
+          mesh.material = new THREE.ShaderMaterial({
+            side: THREE.DoubleSide,
+            wireframe: options.wireframe,
+            vertexShader: `
+              varying vec3 vNormal;
+              varying vec3 vViewPosition;
+              void main() {
+                vNormal = normalize(normalMatrix * normal);
+                vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                vViewPosition = -mvPosition.xyz;
+                gl_Position = projectionMatrix * mvPosition;
+              }
+            `,
+            fragmentShader: `
+              varying vec3 vNormal;
+              varying vec3 vViewPosition;
+              void main() {
+                vec3 n = normalize(vNormal);
+                float light = clamp(dot(n, normalize(vec3(0.4, 0.7, 0.9))), 0.25, 1.0);
+                if (gl_FrontFacing) {
+                  // Healthy front face: Studio Cyan/Blue (#0284c7)
+                  vec3 blue = vec3(0.008, 0.518, 0.780);
+                  gl_FragColor = vec4(blue * (0.6 + 0.4 * light), 1.0);
+                } else {
+                  // Inverted back face: Warning Crimson Red (#ef4444)
+                  vec3 red = vec3(0.937, 0.267, 0.267);
+                  gl_FragColor = vec4(red * (0.65 + 0.35 * light), 1.0);
+                }
+              }
+            `,
+          });
+        } else if (options.shadingMode === 'curvature') {
+          // Mean surface curvature heatmap: Slate navy planar -> Cyan fillets -> Amber/Gold ridges
+          mesh.material = new THREE.ShaderMaterial({
+            side: THREE.DoubleSide,
+            wireframe: options.wireframe,
+            vertexShader: `
+              varying vec3 vNormal;
+              void main() {
+                vNormal = normalize(normalMatrix * normal);
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+              }
+            `,
+            fragmentShader: `
+              varying vec3 vNormal;
+              void main() {
+                vec3 dx = dFdx(vNormal);
+                vec3 dy = dFdy(vNormal);
+                float curvature = clamp((length(dx) + length(dy)) * 9.0, 0.0, 1.0);
+                vec3 cLow = vec3(0.06, 0.09, 0.16);
+                vec3 cMid = vec3(0.02, 0.60, 0.85);
+                vec3 cHigh = vec3(0.96, 0.62, 0.04);
+                vec3 col = curvature < 0.4
+                  ? mix(cLow, cMid, curvature / 0.4)
+                  : mix(cMid, cHigh, (curvature - 0.4) / 0.6);
+                gl_FragColor = vec4(col, 1.0);
+              }
+            `,
           });
         } else if (options.shadingMode === 'wireframe') {
           mesh.material = new THREE.MeshBasicMaterial({
@@ -1793,6 +1875,32 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           mesh.material = new THREE.MeshDepthMaterial({
             wireframe: options.wireframe,
           });
+        } else if (options.materials && options.materials.preset !== 'default') {
+          const mat = options.materials;
+          const isGlass = mat.preset === 'frosted-glass' || mat.preset === 'emerald-gem';
+          const physicalMat = new THREE.MeshPhysicalMaterial({
+            color: new THREE.Color(mat.color),
+            metalness: mat.metalness,
+            roughness: mat.roughness,
+            clearcoat: mat.clearcoat,
+            clearcoatRoughness: 0.1,
+            transmission: mat.transmission ?? (mat.preset === 'frosted-glass' ? 0.92 : mat.preset === 'emerald-gem' ? 0.85 : 0),
+            ior: mat.ior ?? (mat.preset === 'frosted-glass' ? 1.52 : mat.preset === 'emerald-gem' ? 1.6 : 1.5),
+            thickness: isGlass || (mat.transmission && mat.transmission > 0) ? 1.2 : 0,
+            wireframe: options.wireframe,
+          });
+          if (mat.emissiveIntensity > 0) {
+            physicalMat.emissive = new THREE.Color(mat.emissiveColor || '#000000');
+            physicalMat.emissiveIntensity = mat.emissiveIntensity;
+          }
+          if (mat.proceduralPattern && mat.proceduralPattern !== 'none') {
+            const patTex = getProceduralPatternTexture(mat.proceduralPattern);
+            if (patTex) {
+              physicalMat.map = patTex;
+              physicalMat.roughnessMap = patTex;
+            }
+          }
+          mesh.material = physicalMat;
         } else {
           if (origMat) {
             mesh.material = origMat;
@@ -2809,6 +2917,8 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
             <option value="pbr">PBR Shaded</option>
             <option value="clay">Clay Studio</option>
             <option value="normals">Normal Vectors</option>
+            <option value="face-orientation">Face Orientation (Normals)</option>
+            <option value="curvature">Curvature Ridge Heatmap</option>
             <option value="albedo">Base Color (Albedo)</option>
             <option value="roughness">Roughness Map</option>
             <option value="metalness">Metalness Map</option>

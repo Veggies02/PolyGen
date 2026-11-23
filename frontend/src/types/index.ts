@@ -88,12 +88,23 @@ export type ToneMappingMode = 'aces' | 'agx' | 'cineon' | 'neutral' | 'reinhard'
 export type MotionMode = 'none' | 'hover-float' | 'turntable-spin' | 'cinematic-pulse' | 'model-clip';
 export type StudioBackdrop = 'void' | 'studio-vignette' | 'cyber-grid' | 'warm-sunset' | 'blueprint';
 
+export interface LightingRigOptions {
+  keyColor?: string;
+  keyIntensity?: number;
+  fillColor?: string;
+  fillIntensity?: number;
+  rimColor?: string;
+  rimIntensity?: number;
+  shadows?: boolean;
+  showLightGizmos?: boolean;
+}
+
 export interface ViewerOptions {
   wireframe: boolean;
   wireframeOverlay?: boolean;
   grid: boolean;
   autoRotate: boolean;
-  shadingMode: 'pbr' | 'clay' | 'normals' | 'wireframe' | 'albedo' | 'roughness' | 'metalness' | 'matcap' | 'depth';
+  shadingMode: 'pbr' | 'clay' | 'normals' | 'wireframe' | 'albedo' | 'roughness' | 'metalness' | 'matcap' | 'depth' | 'face-orientation' | 'curvature';
   lightingPreset: 'studio' | 'cyberpunk' | 'sunset' | 'space' | 'dramatic' | 'soft';
   lightAngle?: number;
   backgroundColor: string;
@@ -105,6 +116,7 @@ export interface ViewerOptions {
   motionMode?: MotionMode;
   playbackSpeed?: number;
   studioBackdrop?: StudioBackdrop;
+  lightingRig?: LightingRigOptions;
 }
 
 export interface LiveGeometryStats {

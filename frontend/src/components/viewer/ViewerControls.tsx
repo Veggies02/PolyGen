@@ -25,6 +25,8 @@ export const ViewerControls: React.FC<ViewerControlsProps> = ({
     { id: 'pbr', label: 'PBR Shaded' },
     { id: 'clay', label: 'Clay Matte' },
     { id: 'normals', label: 'Normals' },
+    { id: 'face-orientation', label: 'Face Orientation' },
+    { id: 'curvature', label: 'Curvature Heatmap' },
     { id: 'wireframe', label: 'Wireframe' },
   ];
 

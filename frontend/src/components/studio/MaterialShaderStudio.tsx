@@ -11,7 +11,8 @@ import {
   Compass,
   Film,
   Play,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Lightbulb
 } from 'lucide-react';
 
 interface MaterialShaderStudioProps {
@@ -528,7 +529,7 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
         </div>
 
         {/* Key Light Orbit Slider */}
-        <div className="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800/80">
+        <div className="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800/80 mb-2">
           <div className="flex items-center justify-between text-[11px] mb-1">
             <span className="text-slate-400 flex items-center gap-1.5">
               <Compass className="w-3 h-3 text-amber-400" />
@@ -545,6 +546,183 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
             onChange={(e) => onOptionsChange({ ...options, lightAngle: parseFloat(e.target.value) })}
             className="w-full accent-amber-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
           />
+        </div>
+
+        {/* 3-Point Light Rig Customizer */}
+        <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 space-y-2.5">
+          <div className="flex items-center justify-between text-[11px] pb-1.5 border-b border-slate-800/80">
+            <span className="font-bold text-slate-300 flex items-center gap-1.5">
+              <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
+              Custom 3-Point Light Rig
+            </span>
+            <button
+              onClick={() => {
+                onOptionsChange({
+                  ...options,
+                  lightingRig: {
+                    keyColor: '#ffffff',
+                    keyIntensity: 2.4,
+                    fillColor: '#94a3b8',
+                    fillIntensity: 1.2,
+                    rimColor: '#38bdf8',
+                    rimIntensity: 1.4,
+                    shadows: true,
+                    showLightGizmos: false,
+                  },
+                });
+              }}
+              className="text-[10px] text-slate-500 hover:text-slate-300"
+            >
+              Reset Rig
+            </button>
+          </div>
+
+          {/* Key Light */}
+          <div>
+            <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+              <span>Key Light (Main)</span>
+              <span className="font-mono text-amber-400">
+                {(options.lightingRig?.keyIntensity ?? 2.4).toFixed(1)}x
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={options.lightingRig?.keyColor || '#ffffff'}
+                onChange={(e) =>
+                  onOptionsChange({
+                    ...options,
+                    lightingRig: { ...(options.lightingRig || {}), keyColor: e.target.value },
+                  })
+                }
+                className="w-5 h-5 rounded cursor-pointer bg-slate-900 border border-slate-800 p-0"
+                title="Key Light Color"
+              />
+              <input
+                type="range"
+                min={0}
+                max={5}
+                step={0.1}
+                value={options.lightingRig?.keyIntensity ?? 2.4}
+                onChange={(e) =>
+                  onOptionsChange({
+                    ...options,
+                    lightingRig: { ...(options.lightingRig || {}), keyIntensity: parseFloat(e.target.value) },
+                  })
+                }
+                className="w-full accent-amber-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
+              />
+            </div>
+          </div>
+
+          {/* Fill Light */}
+          <div>
+            <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+              <span>Fill Light (Softening)</span>
+              <span className="font-mono text-cyan-400">
+                {(options.lightingRig?.fillIntensity ?? 1.2).toFixed(1)}x
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={options.lightingRig?.fillColor || '#94a3b8'}
+                onChange={(e) =>
+                  onOptionsChange({
+                    ...options,
+                    lightingRig: { ...(options.lightingRig || {}), fillColor: e.target.value },
+                  })
+                }
+                className="w-5 h-5 rounded cursor-pointer bg-slate-900 border border-slate-800 p-0"
+                title="Fill Light Color"
+              />
+              <input
+                type="range"
+                min={0}
+                max={3}
+                step={0.1}
+                value={options.lightingRig?.fillIntensity ?? 1.2}
+                onChange={(e) =>
+                  onOptionsChange({
+                    ...options,
+                    lightingRig: { ...(options.lightingRig || {}), fillIntensity: parseFloat(e.target.value) },
+                  })
+                }
+                className="w-full accent-cyan-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
+              />
+            </div>
+          </div>
+
+          {/* Rim Light */}
+          <div>
+            <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+              <span>Rim / Edge Backlight</span>
+              <span className="font-mono text-sky-400">
+                {(options.lightingRig?.rimIntensity ?? 1.4).toFixed(1)}x
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={options.lightingRig?.rimColor || '#38bdf8'}
+                onChange={(e) =>
+                  onOptionsChange({
+                    ...options,
+                    lightingRig: { ...(options.lightingRig || {}), rimColor: e.target.value },
+                  })
+                }
+                className="w-5 h-5 rounded cursor-pointer bg-slate-900 border border-slate-800 p-0"
+                title="Rim Light Color"
+              />
+              <input
+                type="range"
+                min={0}
+                max={4}
+                step={0.1}
+                value={options.lightingRig?.rimIntensity ?? 1.4}
+                onChange={(e) =>
+                  onOptionsChange({
+                    ...options,
+                    lightingRig: { ...(options.lightingRig || {}), rimIntensity: parseFloat(e.target.value) },
+                  })
+                }
+                className="w-full accent-sky-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
+              />
+            </div>
+          </div>
+
+          {/* Shadow & Gizmo Toggles */}
+          <div className="flex items-center justify-between pt-1.5 border-t border-slate-800 text-[10px]">
+            <label className="flex items-center gap-1.5 cursor-pointer text-slate-300">
+              <input
+                type="checkbox"
+                checked={options.lightingRig?.shadows !== false}
+                onChange={(e) =>
+                  onOptionsChange({
+                    ...options,
+                    lightingRig: { ...(options.lightingRig || {}), shadows: e.target.checked },
+                  })
+                }
+                className="rounded accent-amber-400"
+              />
+              <span>Cast Shadows</span>
+            </label>
+
+            <label className="flex items-center gap-1.5 cursor-pointer text-slate-300">
+              <input
+                type="checkbox"
+                checked={Boolean(options.lightingRig?.showLightGizmos)}
+                onChange={(e) =>
+                  onOptionsChange({
+                    ...options,
+                    lightingRig: { ...(options.lightingRig || {}), showLightGizmos: e.target.checked },
+                  })
+                }
+                className="rounded accent-cyan-400"
+              />
+              <span>Light Gizmos</span>
+            </label>
+          </div>
         </div>
       </div>
 
