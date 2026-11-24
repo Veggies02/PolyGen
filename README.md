@@ -155,3 +155,10 @@ When configured, the providers automatically flip from `Key Required` to `Ready`
 4. **Asset Gallery**:
    - Filter by tag chips or full-text search across titles and prompts.
    - Detailed asset inspection modal with direct downloads for `.GLB`, `.OBJ`, and `.STL`.
+
+## Shap-E provider (Remote GPU)
+
+The `shape` provider sends prompts to a Shap-E server running on a Colab GPU.
+1. Run `backend/shape_server/colab_server.py` in Colab (instructions at the top of the file).
+2. Put `SHAPE_REMOTE_URL` and `SHAPE_API_TOKEN` in `backend/.env` (never commit this file).
+3. Restart the backend and select "Shap-E (Remote GPU)" in the studio.

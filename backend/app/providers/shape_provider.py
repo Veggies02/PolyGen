@@ -124,7 +124,7 @@ class ShapEProvider(Base3DProvider):
             "attributes": {
                 "engine": "Shap-E text300M (remote)",
                 "prompt": request.prompt,
-                "seed": request.seed,
+                "seed": data.get("seed", request.seed),
                 "is_demo": False,
                 **converted,
             },
