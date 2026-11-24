@@ -34,10 +34,11 @@ import {
   Crosshair,
   Trash2,
   Sun,
-  LayoutGrid
+  LayoutGrid,
+  Bookmark
 } from 'lucide-react';
 import { api } from '../../api/client';
-import type { ViewerOptions, TransformData, ModelAnnotation, MeasurementData } from '../../types';
+import type { ViewerOptions, TransformData, ModelAnnotation, MeasurementData, CameraBookmark } from '../../types';
 
 function createProceduralMatcapTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
@@ -222,6 +223,30 @@ interface Canvas3DProps {
   onToggleZenMode?: () => void;
 }
 
+const defaultBookmarks: CameraBookmark[] = [
+  {
+    id: 'bm-iso',
+    name: 'Hero Isometric',
+    position: [3.5, 2.8, 4.5],
+    target: [0, 0.8, 0],
+    projection: 'perspective',
+  },
+  {
+    id: 'bm-top',
+    name: 'Plan / Top View',
+    position: [0.001, 5.0, 0.001],
+    target: [0, 0.8, 0],
+    projection: 'orthographic',
+  },
+  {
+    id: 'bm-front',
+    name: 'Front Elevation',
+    position: [0, 0.8, 5.0],
+    target: [0, 0.8, 0],
+    projection: 'orthographic',
+  },
+];
+
 export const Canvas3D: React.FC<Canvas3DProps> = ({
   modelUrl,
   assetTitle,
@@ -242,6 +267,11 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   isZenMode = false,
   onToggleZenMode,
 }) => {
+  const [showBookmarksPanel, setShowBookmarksPanel] = useState(false);
+  const [newBookmarkName, setNewBookmarkName] = useState('');
+  const cameraAnimationRef = useRef<number | null>(null);
+  const currentBookmarks = options.cameraBookmarks && options.cameraBookmarks.length > 0 ? options.cameraBookmarks : defaultBookmarks;
+
   const containerRef = useRef<HTMLDivElement>(null);
   const gizmoCanvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -727,22 +757,151 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     });
   };
 
-  // Click on Gizmo to snap camera
-  const handleSnapCamera = (axis: 'x' | 'y' | 'z' | 'iso') => {
-    if (!cameraRef.current || !controlsRef.current) return;
-    const dist = 5.0;
-    if (axis === 'x') {
-      cameraRef.current.position.set(dist, 1.0, 0);
-    } else if (axis === 'y') {
-      cameraRef.current.position.set(0.01, dist, 0.01);
-    } else if (axis === 'z') {
-      cameraRef.current.position.set(0, 1.0, dist);
-    } else {
-      cameraRef.current.position.set(dist * 0.7, dist * 0.6, dist * 0.7);
+  // Smooth Animated Camera Transition Engine
+  const animateCameraTo = useCallback((targetPos: THREE.Vector3, targetLookAt: THREE.Vector3, durationMs = 600) => {
+    const cam = activeCameraRef.current || cameraRef.current;
+    const controls = controlsRef.current;
+    if (!cam || !controls) return;
+
+    if (cameraAnimationRef.current) {
+      cancelAnimationFrame(cameraAnimationRef.current);
+      cameraAnimationRef.current = null;
     }
-    controlsRef.current.target.set(0, 0.8, 0);
-    controlsRef.current.update();
-  };
+
+    const startPos = cam.position.clone();
+    const startTarget = controls.target.clone();
+    const startTime = performance.now();
+
+    const step = (now: number) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / durationMs, 1.0);
+      // Smooth cubic ease-in-out
+      const ease = progress < 0.5
+        ? 4 * progress * progress * progress
+        : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+      cam.position.lerpVectors(startPos, targetPos, ease);
+      controls.target.lerpVectors(startTarget, targetLookAt, ease);
+      controls.update();
+
+      if (progress < 1.0) {
+        cameraAnimationRef.current = requestAnimationFrame(step);
+      } else {
+        cameraAnimationRef.current = null;
+      }
+    };
+
+    cameraAnimationRef.current = requestAnimationFrame(step);
+  }, []);
+
+  const getModelBoundsInfo = useCallback(() => {
+    let center = new THREE.Vector3(0, 0.8, 0);
+    let distance = 4.5;
+    if (modelGroupRef.current && modelGroupRef.current.children.length > 0) {
+      const bbox = new THREE.Box3().setFromObject(modelGroupRef.current);
+      if (!bbox.isEmpty()) {
+        center = bbox.getCenter(new THREE.Vector3());
+        const size = bbox.getSize(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z, 0.5);
+        const cam = cameraRef.current;
+        const fov = cam ? cam.fov * (Math.PI / 180) : Math.PI / 4;
+        distance = Math.abs(maxDim / Math.sin(fov / 2)) * 0.95;
+      }
+    }
+    return { center, distance };
+  }, []);
+
+  // Smooth CAD projection snap
+  const handleSnapCamera = useCallback((view: 'x' | 'y' | 'z' | 'iso' | 'front' | 'back' | 'top' | 'bottom' | 'right' | 'left') => {
+    const { center, distance } = getModelBoundsInfo();
+    const targetPos = new THREE.Vector3();
+
+    if (view === 'x' || view === 'right') {
+      targetPos.set(center.x + distance, center.y, center.z);
+    } else if (view === 'left') {
+      targetPos.set(center.x - distance, center.y, center.z);
+    } else if (view === 'y' || view === 'top') {
+      targetPos.set(center.x + 0.001, center.y + distance, center.z + 0.001);
+    } else if (view === 'bottom') {
+      targetPos.set(center.x + 0.001, center.y - distance, center.z + 0.001);
+    } else if (view === 'z' || view === 'front') {
+      targetPos.set(center.x, center.y, center.z + distance);
+    } else if (view === 'back') {
+      targetPos.set(center.x, center.y, center.z - distance);
+    } else {
+      // Isometric 3D angle
+      targetPos.set(center.x + distance * 0.75, center.y + distance * 0.65, center.z + distance * 0.75);
+    }
+
+    animateCameraTo(targetPos, center);
+  }, [getModelBoundsInfo, animateCameraTo]);
+
+  const handleResetCamera = useCallback(() => {
+    const { center, distance } = getModelBoundsInfo();
+    const targetPos = new THREE.Vector3(center.x + distance * 0.8, center.y + distance * 0.65, center.z + distance * 0.95);
+    animateCameraTo(targetPos, center);
+  }, [getModelBoundsInfo, animateCameraTo]);
+
+  const handleSaveCurrentCameraBookmark = useCallback((nameInput?: string) => {
+    const cam = activeCameraRef.current || cameraRef.current;
+    const controls = controlsRef.current;
+    if (!cam || !controls) return;
+
+    const currentList = options.cameraBookmarks || defaultBookmarks;
+    const newBookmark: CameraBookmark = {
+      id: `bm-${Date.now()}`,
+      name: nameInput || `View ${currentList.length + 1}`,
+      position: [
+        Number(cam.position.x.toFixed(2)),
+        Number(cam.position.y.toFixed(2)),
+        Number(cam.position.z.toFixed(2)),
+      ],
+      target: [
+        Number(controls.target.x.toFixed(2)),
+        Number(controls.target.y.toFixed(2)),
+        Number(controls.target.z.toFixed(2)),
+      ],
+      projection: options.cameraProjection || 'perspective',
+      createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+
+    onOptionsChange?.({
+      ...options,
+      cameraBookmarks: [...currentList, newBookmark],
+    });
+  }, [options, onOptionsChange]);
+
+  const handleFlyToBookmark = useCallback((bm: CameraBookmark) => {
+    const pos = new THREE.Vector3(...bm.position);
+    const target = new THREE.Vector3(...bm.target);
+    if (bm.projection && bm.projection !== options.cameraProjection) {
+      onOptionsChange?.({ ...options, cameraProjection: bm.projection });
+    }
+    animateCameraTo(pos, target);
+  }, [options, onOptionsChange, animateCameraTo]);
+
+  const handleDeleteBookmark = useCallback((bmId: string) => {
+    const currentList = options.cameraBookmarks || defaultBookmarks;
+    onOptionsChange?.({
+      ...options,
+      cameraBookmarks: currentList.filter(b => b.id !== bmId),
+    });
+  }, [options, onOptionsChange]);
+
+  // Listener for programmatic view trigger
+  useEffect(() => {
+    if (!options.triggerView) return;
+    const v = options.triggerView.view;
+    if (['iso', 'front', 'back', 'top', 'bottom', 'right', 'left', 'x', 'y', 'z'].includes(v)) {
+      handleSnapCamera(v as any);
+    } else {
+      const bms = options.cameraBookmarks || defaultBookmarks;
+      const found = bms.find(b => b.id === v);
+      if (found) {
+        handleFlyToBookmark(found);
+      }
+    }
+  }, [options.triggerView, handleSnapCamera, handleFlyToBookmark, options.cameraBookmarks]);
 
   // Add 3D Primitive Shape into Scene (Cube, Sphere, Cylinder, Torus)
   const handleAddPrimitive = (type: 'cube' | 'sphere' | 'cylinder' | 'torus') => {
@@ -1236,12 +1395,24 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       } else if (e.code === 'Space') {
         e.preventDefault();
         setIsPlaying((prev) => !prev);
+      } else if (e.key === '1') {
+        handleSnapCamera('front');
+      } else if (e.key === '2') {
+        handleSnapCamera('top');
+      } else if (e.key === '3') {
+        handleSnapCamera('right');
+      } else if (e.key === '4') {
+        handleSnapCamera('back');
+      } else if (e.key === '5') {
+        handleSnapCamera('iso');
+      } else if (e.key === '0') {
+        handleResetCamera();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [handleSnapCamera, handleResetCamera, options, onOptionsChange]);
 
   // Client-Side 3D Exporters (Exports current live transformed mesh directly from Three.js scene)
   const handleClientExport = (format: 'glb' | 'obj' | 'stl') => {
@@ -1518,25 +1689,6 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
         recorder.stop();
       }
     }, 1000 / 30);
-  };
-
-  const handleResetCamera = () => {
-    if (!cameraRef.current || !controlsRef.current) return;
-    if (modelGroupRef.current && modelGroupRef.current.children.length > 0) {
-      const bbox = new THREE.Box3().setFromObject(modelGroupRef.current);
-      const size = bbox.getSize(new THREE.Vector3());
-      const center = bbox.getCenter(new THREE.Vector3());
-      const maxDim = Math.max(size.x, size.y, size.z, 1.0);
-      const fov = cameraRef.current.fov * (Math.PI / 180);
-      const distance = Math.abs(maxDim / Math.sin(fov / 2)) * 0.95;
-
-      cameraRef.current.position.set(distance * 0.9, distance * 0.7, distance * 1.1);
-      controlsRef.current.target.copy(center);
-    } else {
-      cameraRef.current.position.set(3.5, 2.8, 4.5);
-      controlsRef.current.target.set(0, 0.8, 0);
-    }
-    controlsRef.current.update();
   };
 
   // Reset imported model if a library model is clicked
@@ -2779,41 +2931,58 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           );
         })}
 
-        {/* TOP-RIGHT 3D ORIENTATION GIZMO (X/Y/Z) */}
-        <div className="absolute right-4 top-4 z-20 flex flex-col items-center gap-2">
-          <div 
-            onClick={() => handleSnapCamera('z')}
-            title="Click to snap Front View (Z)"
-            className="relative w-20 h-20 bg-slate-950/80 border border-slate-800/80 rounded-2xl backdrop-blur-md p-1 shadow-2xl flex items-center justify-center cursor-pointer hover:border-slate-600 transition-colors"
-          >
-            <canvas ref={gizmoCanvasRef} width={76} height={76} className="pointer-events-none" />
+        {/* TOP-RIGHT 3D ORIENTATION GIZMO (X/Y/Z) & CAMERA BOOKMARKS */}
+        <div className="absolute right-4 top-4 z-20 flex flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
+            {/* Camera Bookmarks Flyout Toggle */}
+            <button
+              onClick={() => setShowBookmarksPanel((prev) => !prev)}
+              className={`px-2.5 py-1.5 rounded-xl border flex items-center gap-1.5 text-[10px] font-semibold backdrop-blur-md shadow-xl transition-all ${
+                showBookmarksPanel
+                  ? 'bg-amber-950/80 border-amber-500/70 text-amber-300'
+                  : 'bg-slate-950/80 border-slate-800/80 text-slate-300 hover:text-white hover:border-slate-700'
+              }`}
+              title="Camera Viewpoints & Saved Bookmarks"
+            >
+              <Bookmark className="w-3 h-3 text-amber-400" />
+              <span>Views ({currentBookmarks.length})</span>
+            </button>
+
+            <div 
+              onClick={() => handleSnapCamera('z')}
+              title="Click to snap Front View (Z) [1]"
+              className="relative w-16 h-16 bg-slate-950/80 border border-slate-800/80 rounded-2xl backdrop-blur-md p-1 shadow-2xl flex items-center justify-center cursor-pointer hover:border-slate-600 transition-colors"
+            >
+              <canvas ref={gizmoCanvasRef} width={60} height={60} className="pointer-events-none" />
+            </div>
           </div>
 
-          <div className="flex items-center gap-1">
+          {/* Quick Snap Viewpoint Buttons */}
+          <div className="flex items-center gap-1 bg-slate-950/80 border border-slate-800/80 rounded-xl p-1 backdrop-blur-md shadow-lg">
             <button
               onClick={() => handleSnapCamera('x')}
-              title="Snap Right View (X)"
+              title="Snap Right View (X) [3]"
               className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[9px] text-red-400 hover:bg-slate-800 font-bold"
             >
               X
             </button>
             <button
               onClick={() => handleSnapCamera('y')}
-              title="Snap Top View (Y)"
+              title="Snap Top View (Y) [2]"
               className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[9px] text-green-400 hover:bg-slate-800 font-bold"
             >
               Y
             </button>
             <button
               onClick={() => handleSnapCamera('z')}
-              title="Snap Front View (Z)"
+              title="Snap Front View (Z) [1]"
               className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[9px] text-blue-400 hover:bg-slate-800 font-bold"
             >
               Z
             </button>
             <button
               onClick={() => handleSnapCamera('iso')}
-              title="Snap Isometric 3D View"
+              title="Snap Isometric 3D View [5]"
               className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[9px] text-amber-400 hover:bg-slate-800 font-bold"
             >
               Iso
@@ -2834,12 +3003,88 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
             </button>
             <button
               onClick={handleResetCamera}
-              title="Auto-Fit Camera to Model Bounds"
+              title="Auto-Fit Camera to Model Bounds [0]"
               className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[9px] text-slate-300 hover:bg-slate-800 font-bold"
             >
               Fit
             </button>
           </div>
+
+          {/* Bookmarks Popover */}
+          {showBookmarksPanel && (
+            <div className="w-64 p-3 bg-slate-950/95 border border-slate-800 rounded-2xl shadow-2xl backdrop-blur-xl flex flex-col gap-2.5 z-30 animate-in fade-in slide-in-from-top-2">
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                <span className="font-bold text-xs text-white flex items-center gap-1.5">
+                  <Bookmark className="w-3.5 h-3.5 text-amber-400" />
+                  Camera Viewpoints
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  Hotkeys 1-5, 0
+                </span>
+              </div>
+
+              {/* Bookmark Save Action */}
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  placeholder="Bookmark name..."
+                  value={newBookmarkName}
+                  onChange={(e) => setNewBookmarkName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleSaveCurrentCameraBookmark(newBookmarkName.trim() || undefined);
+                      setNewBookmarkName('');
+                    }
+                  }}
+                  className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-[11px] text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                />
+                <button
+                  onClick={() => {
+                    handleSaveCurrentCameraBookmark(newBookmarkName.trim() || undefined);
+                    setNewBookmarkName('');
+                  }}
+                  className="px-2 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[10px] transition-colors shrink-0"
+                  title="Bookmark current camera perspective"
+                >
+                  Save View
+                </button>
+              </div>
+
+              {/* Saved Viewpoints List */}
+              <div className="flex flex-col gap-1 max-h-48 overflow-y-auto pr-1">
+                {currentBookmarks.map((bm, idx) => (
+                  <div
+                    key={bm.id}
+                    className="flex items-center justify-between p-1.5 rounded-xl bg-slate-900/60 border border-slate-800/80 hover:border-slate-700 transition-all text-[11px]"
+                  >
+                    <button
+                      onClick={() => handleFlyToBookmark(bm)}
+                      className="flex items-center gap-2 text-left truncate flex-1 text-slate-200 hover:text-amber-300"
+                    >
+                      <span className="w-4 h-4 rounded-full bg-slate-800 text-[9px] font-bold text-amber-400 flex items-center justify-center shrink-0">
+                        {idx + 1}
+                      </span>
+                      <div className="truncate">
+                        <div className="font-medium truncate">{bm.name}</div>
+                        <div className="text-[9px] text-slate-500 font-mono">
+                          [{bm.position[0]}, {bm.position[1]}, {bm.position[2]}]
+                        </div>
+                      </div>
+                    </button>
+                    {idx >= 3 && (
+                      <button
+                        onClick={() => handleDeleteBookmark(bm.id)}
+                        className="text-slate-500 hover:text-red-400 p-1 ml-1 transition-colors"
+                        title="Delete view bookmark"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* FLOATING BOTTOM TRIPO/MIXAR PILL UTILITY BAR */}

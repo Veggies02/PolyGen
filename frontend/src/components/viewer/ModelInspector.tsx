@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { Asset, ViewerOptions, TransformData, ModelAnnotation, MeasurementData } from '../../types';
+import type { Asset, ViewerOptions, TransformData, ModelAnnotation, MeasurementData, CameraBookmark } from '../../types';
 import { api } from '../../api/client';
 import { 
   Download, 
@@ -15,18 +15,20 @@ import {
   Trash2, 
   Sliders, 
   RotateCcw, 
-  Move,
-  RotateCw,
-  Scale,
-  Scissors,
-  MapPin,
-  Crosshair,
-  Eye,
-  Printer,
-  CheckCircle2,
-  AlertTriangle,
-  Activity,
-  Play
+  Move, 
+  RotateCw, 
+  Scale, 
+  Scissors, 
+  MapPin, 
+  Crosshair, 
+  Eye, 
+  Printer, 
+  CheckCircle2, 
+  AlertTriangle, 
+  Activity, 
+  Play,
+  Bookmark,
+  Plus
 } from 'lucide-react';
 import { MaterialShaderStudio } from '../studio/MaterialShaderStudio';
 
@@ -347,6 +349,114 @@ export const ModelInspector: React.FC<ModelInspectorProps> = ({
             <div className="text-[10px] text-slate-500 leading-normal">
               Use viewport gizmo handles or hotkeys (<kbd className="text-slate-300">G</kbd> Move, <kbd className="text-slate-300">R</kbd> Rotate, <kbd className="text-slate-300">S</kbd> Scale) to adjust coordinates interactively.
             </div>
+          </div>
+
+          {/* Camera Viewpoints & Bookmarks Card */}
+          <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col gap-2.5">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-white flex items-center gap-1.5">
+                <Bookmark className="w-3.5 h-3.5 text-amber-400" />
+                Camera Viewpoints & Bookmarks
+              </span>
+              <button
+                onClick={() => {
+                  const bms = options?.cameraBookmarks || [];
+                  const newBm: CameraBookmark = {
+                    id: `bm-${Date.now()}`,
+                    name: `Viewpoint ${bms.length + 1}`,
+                    position: [3.5, 2.8, 4.5],
+                    target: [0, 0.8, 0],
+                    projection: options?.cameraProjection || 'perspective',
+                    createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                  };
+                  options &&
+                    onOptionsChange?.({
+                      ...options,
+                      cameraBookmarks: [...bms, newBm],
+                      triggerView: { view: newBm.id, timestamp: Date.now() },
+                    });
+                }}
+                className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-950/50 border border-amber-500/40 text-amber-300 hover:bg-amber-900/60 transition-colors flex items-center gap-1 cursor-pointer"
+                title="Bookmark current camera viewpoint"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Bookmark View</span>
+              </button>
+            </div>
+
+            {/* Quick CAD Projections Grid */}
+            <div className="grid grid-cols-4 gap-1">
+              {[
+                { id: 'iso', label: 'Isometric' },
+                { id: 'front', label: 'Front (Z)' },
+                { id: 'top', label: 'Top (Y)' },
+                { id: 'right', label: 'Right (X)' },
+                { id: 'back', label: 'Back (-Z)' },
+                { id: 'bottom', label: 'Bottom (-Y)' },
+                { id: 'left', label: 'Left (-X)' },
+                { id: 'fit', label: 'Auto-Fit' },
+              ].map((proj) => (
+                <button
+                  key={proj.id}
+                  onClick={() => {
+                    options &&
+                      onOptionsChange?.({
+                        ...options,
+                        triggerView: { view: proj.id, timestamp: Date.now() },
+                      });
+                  }}
+                  className="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[10px] font-medium text-slate-300 text-center transition-colors cursor-pointer"
+                >
+                  {proj.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Saved Bookmarks List */}
+            {options?.cameraBookmarks && options.cameraBookmarks.length > 0 && (
+              <div className="flex flex-col gap-1.5 pt-1.5 border-t border-slate-800/60">
+                <span className="text-[10px] text-slate-400 font-medium">Saved Bookmarks</span>
+                <div className="flex flex-col gap-1 max-h-36 overflow-y-auto pr-1">
+                  {options.cameraBookmarks.map((bm) => (
+                    <div
+                      key={bm.id}
+                      className="flex items-center justify-between p-1.5 rounded-lg bg-slate-900/70 border border-slate-800 text-[11px]"
+                    >
+                      <button
+                        onClick={() =>
+                          options &&
+                          onOptionsChange?.({
+                            ...options,
+                            triggerView: { view: bm.id, timestamp: Date.now() },
+                          })
+                        }
+                        className="flex items-center gap-1.5 text-slate-200 hover:text-amber-300 font-medium truncate flex-1 text-left cursor-pointer"
+                      >
+                        <Camera className="w-3 h-3 text-amber-400 shrink-0" />
+                        <span className="truncate">{bm.name}</span>
+                        <span className="text-[9px] text-slate-500 font-mono">
+                          [{bm.position[0]}, {bm.position[1]}, {bm.position[2]}]
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (options && onOptionsChange) {
+                            onOptionsChange({
+                              ...options,
+                              cameraBookmarks: options.cameraBookmarks?.filter((b) => b.id !== bm.id),
+                            });
+                          }
+                        }}
+                        className="text-slate-500 hover:text-red-400 p-0.5 ml-1 transition-colors cursor-pointer"
+                        title="Delete bookmark"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -99,6 +99,15 @@ export interface LightingRigOptions {
   showLightGizmos?: boolean;
 }
 
+export interface CameraBookmark {
+  id: string;
+  name: string;
+  position: [number, number, number];
+  target: [number, number, number];
+  projection?: 'perspective' | 'orthographic';
+  createdAt?: string;
+}
+
 export interface ViewerOptions {
   wireframe: boolean;
   wireframeOverlay?: boolean;
@@ -117,6 +126,8 @@ export interface ViewerOptions {
   playbackSpeed?: number;
   studioBackdrop?: StudioBackdrop;
   lightingRig?: LightingRigOptions;
+  cameraBookmarks?: CameraBookmark[];
+  triggerView?: { view: string; timestamp: number };
 }
 
 export interface LiveGeometryStats {
