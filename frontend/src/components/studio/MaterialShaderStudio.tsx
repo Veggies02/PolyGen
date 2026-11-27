@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ViewerOptions, MaterialCustomization, ToneMappingMode, StudioBackdrop, MotionMode } from '../../types';
+import type { ViewerOptions, MaterialCustomization, ToneMappingMode, StudioBackdrop, MotionMode, EnvironmentPreset } from '../../types';
 import { 
   Palette, 
   Sun, 
@@ -12,7 +12,8 @@ import {
   Film,
   Play,
   Image as ImageIcon,
-  Lightbulb
+  Lightbulb,
+  Globe
 } from 'lucide-react';
 
 interface MaterialShaderStudioProps {
@@ -721,6 +722,197 @@ export const MaterialShaderStudio: React.FC<MaterialShaderStudioProps> = ({
                 className="rounded accent-cyan-400"
               />
               <span>Light Gizmos</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      {/* 5.5. Real-Time IBL Environment & HDR Reflections */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Globe className="w-3.5 h-3.5 text-sky-400" />
+            <span className="text-[10px] uppercase font-bold text-slate-500">
+              HDR Environment & IBL Reflections
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              onOptionsChange({
+                ...options,
+                environment: {
+                  preset: 'studio-softbox',
+                  intensity: 1.2,
+                  rotation: 0,
+                  showSkybox: false,
+                  groundShadow: true,
+                  groundShadowOpacity: 0.75,
+                },
+              });
+            }}
+            className="text-[10px] text-slate-500 hover:text-slate-300"
+          >
+            Reset IBL
+          </button>
+        </div>
+
+        {/* Environment Preset Pills */}
+        <div className="grid grid-cols-3 gap-1.5">
+          {[
+            { id: 'studio-softbox' as EnvironmentPreset, label: 'Softbox', color: '#f8fafc' },
+            { id: 'cyber-neon' as EnvironmentPreset, label: 'Cyber Neon', color: '#06b6d4' },
+            { id: 'sunset-radiance' as EnvironmentPreset, label: 'Sunset', color: '#f59e0b' },
+            { id: 'industrial-loft' as EnvironmentPreset, label: 'Loft', color: '#f97316' },
+            { id: 'deep-cosmos' as EnvironmentPreset, label: 'Cosmos', color: '#818cf8' },
+            { id: 'neutral' as EnvironmentPreset, label: 'Daylight', color: '#e2e8f0' },
+          ].map((env) => {
+            const isSelected = (options.environment?.preset || 'studio-softbox') === env.id;
+            return (
+              <button
+                key={env.id}
+                onClick={() =>
+                  onOptionsChange({
+                    ...options,
+                    environment: {
+                      ...(options.environment || {
+                        intensity: 1.2,
+                        rotation: 0,
+                        showSkybox: false,
+                        groundShadow: true,
+                        groundShadowOpacity: 0.75,
+                      }),
+                      preset: env.id,
+                    },
+                  })
+                }
+                className={`p-2 rounded-xl text-left border transition-all flex items-center gap-1.5 ${
+                  isSelected
+                    ? 'bg-sky-950/50 border-sky-500/70 text-sky-300 shadow-sm'
+                    : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <div
+                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: env.color }}
+                />
+                <span className="text-[10px] font-semibold truncate">{env.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* IBL Intensity & Rotation Sliders */}
+        <div className="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800/80 space-y-2">
+          {/* Intensity */}
+          <div>
+            <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+              <span>Reflection Intensity</span>
+              <span className="font-mono text-sky-400">
+                {(options.environment?.intensity ?? 1.2).toFixed(1)}x
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={3.0}
+              step={0.1}
+              value={options.environment?.intensity ?? 1.2}
+              onChange={(e) =>
+                onOptionsChange({
+                  ...options,
+                  environment: {
+                    ...(options.environment || {
+                      preset: 'studio-softbox',
+                      rotation: 0,
+                      showSkybox: false,
+                      groundShadow: true,
+                    }),
+                    intensity: parseFloat(e.target.value),
+                  },
+                })
+              }
+              className="w-full accent-sky-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
+            />
+          </div>
+
+          {/* Environment Rotation */}
+          <div>
+            <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+              <span>Environment Rotation</span>
+              <span className="font-mono text-amber-400">
+                {options.environment?.rotation ?? 0}°
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={360}
+              step={5}
+              value={options.environment?.rotation ?? 0}
+              onChange={(e) =>
+                onOptionsChange({
+                  ...options,
+                  environment: {
+                    ...(options.environment || {
+                      preset: 'studio-softbox',
+                      intensity: 1.2,
+                      showSkybox: false,
+                      groundShadow: true,
+                    }),
+                    rotation: parseInt(e.target.value, 10),
+                  },
+                })
+              }
+              className="w-full accent-amber-400 h-1 bg-slate-800 rounded-lg cursor-pointer"
+            />
+          </div>
+
+          {/* Skybox Background & Ground Shadow Toggles */}
+          <div className="flex items-center justify-between pt-1 border-t border-slate-800 text-[10px]">
+            <label className="flex items-center gap-1.5 cursor-pointer text-slate-300">
+              <input
+                type="checkbox"
+                checked={Boolean(options.environment?.showSkybox)}
+                onChange={(e) =>
+                  onOptionsChange({
+                    ...options,
+                    environment: {
+                      ...(options.environment || {
+                        preset: 'studio-softbox',
+                        intensity: 1.2,
+                        rotation: 0,
+                        groundShadow: true,
+                      }),
+                      showSkybox: e.target.checked,
+                    },
+                  })
+                }
+                className="rounded accent-sky-400"
+              />
+              <span>Render Skybox 360</span>
+            </label>
+
+            <label className="flex items-center gap-1.5 cursor-pointer text-slate-300">
+              <input
+                type="checkbox"
+                checked={options.environment?.groundShadow !== false}
+                onChange={(e) =>
+                  onOptionsChange({
+                    ...options,
+                    environment: {
+                      ...(options.environment || {
+                        preset: 'studio-softbox',
+                        intensity: 1.2,
+                        rotation: 0,
+                        showSkybox: false,
+                      }),
+                      groundShadow: e.target.checked,
+                    },
+                  })
+                }
+                className="rounded accent-emerald-400"
+              />
+              <span>Contact Shadow</span>
             </label>
           </div>
         </div>

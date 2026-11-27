@@ -88,6 +88,17 @@ export type ToneMappingMode = 'aces' | 'agx' | 'cineon' | 'neutral' | 'reinhard'
 export type MotionMode = 'none' | 'hover-float' | 'turntable-spin' | 'cinematic-pulse' | 'model-clip';
 export type StudioBackdrop = 'void' | 'studio-vignette' | 'cyber-grid' | 'warm-sunset' | 'blueprint';
 
+export type EnvironmentPreset = 'studio-softbox' | 'cyber-neon' | 'sunset-radiance' | 'industrial-loft' | 'deep-cosmos' | 'neutral';
+
+export interface EnvironmentOptions {
+  preset: EnvironmentPreset;
+  intensity: number; // 0.0 to 3.0
+  rotation: number; // 0 to 360 deg
+  showSkybox: boolean;
+  groundShadow: boolean;
+  groundShadowOpacity?: number; // 0.0 to 1.0
+}
+
 export interface LightingRigOptions {
   keyColor?: string;
   keyIntensity?: number;
@@ -128,6 +139,8 @@ export interface ViewerOptions {
   lightingRig?: LightingRigOptions;
   cameraBookmarks?: CameraBookmark[];
   triggerView?: { view: string; timestamp: number };
+  environment?: EnvironmentOptions;
+  showDimensions?: boolean;
 }
 
 export interface LiveGeometryStats {

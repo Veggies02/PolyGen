@@ -38,7 +38,7 @@ import {
   Bookmark
 } from 'lucide-react';
 import { api } from '../../api/client';
-import type { ViewerOptions, TransformData, ModelAnnotation, MeasurementData, CameraBookmark } from '../../types';
+import type { ViewerOptions, TransformData, ModelAnnotation, MeasurementData, CameraBookmark, EnvironmentPreset } from '../../types';
 
 function createProceduralMatcapTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
@@ -223,6 +223,153 @@ interface Canvas3DProps {
   onToggleZenMode?: () => void;
 }
 
+const envTextureCache = new Map<string, THREE.CanvasTexture>();
+
+function createEquirectangularCanvas(preset: EnvironmentPreset): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return canvas;
+
+  const w = canvas.width;
+  const h = canvas.height;
+
+  if (preset === 'studio-softbox') {
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
+    bgGrad.addColorStop(0, '#1e293b');
+    bgGrad.addColorStop(0.5, '#0f172a');
+    bgGrad.addColorStop(1, '#020617');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = '#ffffff';
+    ctx.shadowBlur = 40;
+    ctx.fillRect(w * 0.35, h * 0.08, w * 0.3, h * 0.22);
+
+    ctx.fillStyle = '#fef08a';
+    ctx.shadowColor = '#facc15';
+    ctx.shadowBlur = 30;
+    ctx.fillRect(w * 0.05, h * 0.35, w * 0.12, h * 0.35);
+
+    ctx.fillStyle = '#bae6fd';
+    ctx.shadowColor = '#38bdf8';
+    ctx.shadowBlur = 30;
+    ctx.fillRect(w * 0.83, h * 0.35, w * 0.12, h * 0.35);
+  } else if (preset === 'cyber-neon') {
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
+    bgGrad.addColorStop(0, '#090d16');
+    bgGrad.addColorStop(0.6, '#180728');
+    bgGrad.addColorStop(1, '#030008');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.fillStyle = '#06b6d4';
+    ctx.shadowColor = '#22d3ee';
+    ctx.shadowBlur = 45;
+    ctx.fillRect(w * 0.1, h * 0.2, w * 0.35, h * 0.2);
+
+    ctx.fillStyle = '#ec4899';
+    ctx.shadowColor = '#f43f5e';
+    ctx.shadowBlur = 45;
+    ctx.fillRect(w * 0.55, h * 0.25, w * 0.35, h * 0.2);
+  } else if (preset === 'sunset-radiance') {
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
+    bgGrad.addColorStop(0, '#0369a1');
+    bgGrad.addColorStop(0.35, '#ea580c');
+    bgGrad.addColorStop(0.55, '#f59e0b');
+    bgGrad.addColorStop(0.7, '#451a03');
+    bgGrad.addColorStop(1, '#1c1917');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.beginPath();
+    ctx.arc(w * 0.5, h * 0.48, 40, 0, Math.PI * 2);
+    ctx.fillStyle = '#fef08a';
+    ctx.shadowColor = '#f59e0b';
+    ctx.shadowBlur = 60;
+    ctx.fill();
+  } else if (preset === 'industrial-loft') {
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
+    bgGrad.addColorStop(0, '#334155');
+    bgGrad.addColorStop(0.45, '#1e293b');
+    bgGrad.addColorStop(1, '#0f172a');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, w, h);
+
+    for (let i = 0; i < 4; i++) {
+      ctx.beginPath();
+      ctx.arc(w * (0.2 + i * 0.2), h * 0.18, 22, 0, Math.PI * 2);
+      ctx.fillStyle = '#fed7aa';
+      ctx.shadowColor = '#f97316';
+      ctx.shadowBlur = 35;
+      ctx.fill();
+    }
+  } else if (preset === 'deep-cosmos') {
+    ctx.fillStyle = '#020617';
+    ctx.fillRect(0, 0, w, h);
+
+    const grad = ctx.createRadialGradient(w * 0.4, h * 0.4, 20, w * 0.4, h * 0.4, 180);
+    grad.addColorStop(0, '#818cf8');
+    grad.addColorStop(0.4, '#4338ca');
+    grad.addColorStop(1, 'transparent');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.fillStyle = '#ffffff';
+    for (let i = 0; i < 60; i++) {
+      const sx = (Math.sin(i * 99) * 0.5 + 0.5) * w;
+      const sy = (Math.cos(i * 33) * 0.5 + 0.5) * h;
+      ctx.fillRect(sx, sy, 1.5, 1.5);
+    }
+  } else {
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
+    bgGrad.addColorStop(0, '#e2e8f0');
+    bgGrad.addColorStop(0.5, '#cbd5e1');
+    bgGrad.addColorStop(1, '#94a3b8');
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = '#ffffff';
+    ctx.shadowBlur = 50;
+    ctx.fillRect(w * 0.3, h * 0.05, w * 0.4, h * 0.25);
+  }
+
+  return canvas;
+}
+
+function getProceduralEnvironmentTexture(preset: EnvironmentPreset): THREE.CanvasTexture {
+  if (envTextureCache.has(preset)) {
+    return envTextureCache.get(preset)!;
+  }
+  const canvas = createEquirectangularCanvas(preset);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.mapping = THREE.EquirectangularReflectionMapping;
+  texture.needsUpdate = true;
+  envTextureCache.set(preset, texture);
+  return texture;
+}
+
+function createGroundShadowTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const grad = ctx.createRadialGradient(128, 128, 10, 128, 128, 120);
+    grad.addColorStop(0, 'rgba(0, 0, 0, 0.95)');
+    grad.addColorStop(0.35, 'rgba(0, 0, 0, 0.6)');
+    grad.addColorStop(0.7, 'rgba(0, 0, 0, 0.2)');
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 256, 256);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  return tex;
+}
+
 const defaultBookmarks: CameraBookmark[] = [
   {
     id: 'bm-iso',
@@ -294,6 +441,16 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
   const gridHelperRef = useRef<THREE.GridHelper | null>(null);
   const lightsGroupRef = useRef<THREE.Group | null>(null);
   const boxHelperRef = useRef<THREE.BoxHelper | null>(null);
+  const pmremGeneratorRef = useRef<THREE.PMREMGenerator | null>(null);
+  const currentEnvMapRef = useRef<THREE.Texture | null>(null);
+  const groundShadowMeshRef = useRef<THREE.Mesh | null>(null);
+  const dimensionsGroupRef = useRef<THREE.Group | null>(null);
+
+  const [dimensionInfo, setDimensionInfo] = useState<{
+    size: { x: number; y: number; z: number };
+    center: { x: number; y: number; z: number };
+  } | null>(null);
+
   const onTransformChangeRef = useRef(onTransformChange);
   onTransformChangeRef.current = onTransformChange;
 
@@ -498,6 +655,11 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
     const wireframeOverlayGroup = new THREE.Group();
     scene.add(wireframeOverlayGroup);
     wireframeOverlayGroupRef.current = wireframeOverlayGroup;
+
+    // Dimensions Group (for 3D Bounding Calipers & Centroid)
+    const dimensionsGroup = new THREE.Group();
+    scene.add(dimensionsGroup);
+    dimensionsGroupRef.current = dimensionsGroup;
 
     // Pointer Raycasting for Measure & Annotation clicks
     let downX = 0;
@@ -704,6 +866,10 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       scene.remove(transformHelper);
       scene.remove(planeHelper);
       scene.remove(wireframeOverlayGroup);
+      scene.remove(dimensionsGroup);
+      if (groundShadowMeshRef.current) scene.remove(groundShadowMeshRef.current);
+      pmremGeneratorRef.current?.dispose();
+      currentEnvMapRef.current?.dispose();
       if (renderer.domElement && container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
@@ -1407,6 +1573,8 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
         handleSnapCamera('iso');
       } else if (e.key === '0') {
         handleResetCamera();
+      } else if (e.key === 'd' || e.key === 'D') {
+        onOptionsChange?.({ ...options, showDimensions: !options.showDimensions });
       }
     };
 
@@ -1609,6 +1777,149 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
       controlsRef.current.autoRotateSpeed = 2.0;
     }
   }, [options.backgroundColor, options.exposure, options.grid, options.autoRotate, options.studioBackdrop, options.toneMapping]);
+
+  // IBL Environment Map, HDRI Reflections & Skybox Effect
+  useEffect(() => {
+    if (!sceneRef.current || !rendererRef.current) return;
+    const scene = sceneRef.current;
+    const renderer = rendererRef.current;
+    const envOpts = options.environment;
+
+    if (!pmremGeneratorRef.current) {
+      pmremGeneratorRef.current = new THREE.PMREMGenerator(renderer);
+      pmremGeneratorRef.current.compileEquirectangularShader();
+    }
+
+    const preset = envOpts?.preset || 'studio-softbox';
+    const rawTex = getProceduralEnvironmentTexture(preset);
+    const envRenderTarget = pmremGeneratorRef.current.fromEquirectangular(rawTex);
+    const envMap = envRenderTarget.texture;
+
+    if (currentEnvMapRef.current && currentEnvMapRef.current !== envMap) {
+      currentEnvMapRef.current.dispose();
+    }
+    currentEnvMapRef.current = envMap;
+
+    scene.environment = envMap;
+    const intensity = envOpts?.intensity ?? 1.2;
+    if ('environmentIntensity' in scene) {
+      (scene as any).environmentIntensity = intensity;
+    }
+
+    const rotRad = ((envOpts?.rotation ?? 0) * Math.PI) / 180;
+    if ('environmentRotation' in scene) {
+      (scene as any).environmentRotation = new THREE.Euler(0, rotRad, 0);
+    }
+
+    if (envOpts?.showSkybox) {
+      scene.background = envMap;
+      if ('backgroundRotation' in scene) {
+        (scene as any).backgroundRotation = new THREE.Euler(0, rotRad, 0);
+      }
+    } else {
+      const backdropTex = getProceduralBackdropTexture(options.studioBackdrop);
+      scene.background = backdropTex || new THREE.Color(options.backgroundColor);
+    }
+  }, [options.environment, options.studioBackdrop, options.backgroundColor]);
+
+  // Ground Contact Shadow Plane Effect
+  useEffect(() => {
+    if (!sceneRef.current) return;
+    const scene = sceneRef.current;
+    const enabled = options.environment?.groundShadow !== false;
+
+    if (!groundShadowMeshRef.current) {
+      const geo = new THREE.PlaneGeometry(1, 1);
+      const mat = new THREE.MeshBasicMaterial({
+        map: createGroundShadowTexture(),
+        transparent: true,
+        opacity: options.environment?.groundShadowOpacity ?? 0.75,
+        depthWrite: false,
+      });
+      const shadowMesh = new THREE.Mesh(geo, mat);
+      shadowMesh.rotation.x = -Math.PI / 2;
+      scene.add(shadowMesh);
+      groundShadowMeshRef.current = shadowMesh;
+    }
+
+    const mesh = groundShadowMeshRef.current;
+    mesh.visible = enabled;
+
+    if (enabled && modelGroupRef.current && modelGroupRef.current.children.length > 0) {
+      const bbox = new THREE.Box3().setFromObject(modelGroupRef.current);
+      if (!bbox.isEmpty()) {
+        const center = bbox.getCenter(new THREE.Vector3());
+        const size = bbox.getSize(new THREE.Vector3());
+        const footprint = Math.max(size.x, size.z) * 1.8;
+        mesh.scale.set(footprint, footprint, 1);
+        mesh.position.set(center.x, bbox.min.y - 0.005, center.z);
+        if (mesh.material && (mesh.material as THREE.MeshBasicMaterial).opacity !== undefined) {
+          (mesh.material as THREE.MeshBasicMaterial).opacity = options.environment?.groundShadowOpacity ?? 0.75;
+        }
+      }
+    }
+  }, [options.environment?.groundShadow, options.environment?.groundShadowOpacity, modelUrl, importedModelUrl]);
+
+  // 3D Bounding Caliper Dimensions & Centroid Update Effect
+  useEffect(() => {
+    if (!dimensionsGroupRef.current || !sceneRef.current || !modelGroupRef.current) return;
+    const group = dimensionsGroupRef.current;
+    group.clear();
+
+    if (!options.showDimensions) {
+      setDimensionInfo(null);
+      return;
+    }
+
+    if (modelGroupRef.current.children.length === 0) return;
+
+    const bbox = new THREE.Box3().setFromObject(modelGroupRef.current);
+    if (bbox.isEmpty()) return;
+
+    const center = bbox.getCenter(new THREE.Vector3());
+    const size = bbox.getSize(new THREE.Vector3());
+
+    setDimensionInfo({
+      size: { x: Number(size.x.toFixed(2)), y: Number(size.y.toFixed(2)), z: Number(size.z.toFixed(2)) },
+      center: { x: Number(center.x.toFixed(2)), y: Number(center.y.toFixed(2)), z: Number(center.z.toFixed(2)) },
+    });
+
+    // 1. Cyan Bounding Box Wireframe Frame
+    const boxHelper = new THREE.Box3Helper(bbox, new THREE.Color(0x06b6d4));
+    group.add(boxHelper);
+
+    // 2. Centroid Marker (Pulsing Sphere + Crosshair lines)
+    const centroidGeo = new THREE.SphereGeometry(Math.max(Math.min(size.x, size.y, size.z) * 0.04, 0.05), 16, 16);
+    const centroidMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
+    const centroidSphere = new THREE.Mesh(centroidGeo, centroidMat);
+    centroidSphere.position.copy(center);
+    group.add(centroidSphere);
+
+    // Centroid 3D Crosshair
+    const armLen = Math.max(size.x, size.y, size.z) * 0.15;
+    const xLine = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(center.x - armLen, center.y, center.z),
+        new THREE.Vector3(center.x + armLen, center.y, center.z)
+      ]),
+      new THREE.LineBasicMaterial({ color: 0xef4444 })
+    );
+    const yLine = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(center.x, center.y - armLen, center.z),
+        new THREE.Vector3(center.x, center.y + armLen, center.z)
+      ]),
+      new THREE.LineBasicMaterial({ color: 0x22c55e })
+    );
+    const zLine = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(center.x, center.y, center.z - armLen),
+        new THREE.Vector3(center.x, center.y, center.z + armLen)
+      ]),
+      new THREE.LineBasicMaterial({ color: 0x3b82f6 })
+    );
+    group.add(xLine, yLine, zLine);
+  }, [options.showDimensions, modelUrl, importedModelUrl]);
 
   const handleCaptureSnapshot = () => {
     if (!rendererRef.current || !sceneRef.current || !cameraRef.current) return;
@@ -3087,6 +3398,39 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           )}
         </div>
 
+        {/* 3D BOUNDING CALIPER HUD OVERLAY */}
+        {options.showDimensions && dimensionInfo && (
+          <div className="absolute top-14 left-4 z-20 flex flex-col gap-1.5 p-3 rounded-2xl bg-slate-950/90 border border-slate-800/80 backdrop-blur-md text-xs shadow-2xl animate-in fade-in">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-1.5 gap-4">
+              <span className="font-bold text-white flex items-center gap-1.5 text-[11px]">
+                <Ruler className="w-3.5 h-3.5 text-amber-400" />
+                3D Caliper Bounding Metric
+              </span>
+              <span className="text-[9px] text-slate-500 font-mono">[D] Toggle</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-[10px] font-mono">
+              <div className="p-1.5 rounded-lg bg-red-950/30 border border-red-500/40 text-red-300">
+                <span className="text-slate-400 block text-[9px]">Width (X):</span>
+                <span className="font-bold">{dimensionInfo.size.x}m</span>
+              </div>
+              <div className="p-1.5 rounded-lg bg-emerald-950/30 border border-emerald-500/40 text-emerald-300">
+                <span className="text-slate-400 block text-[9px]">Height (Y):</span>
+                <span className="font-bold">{dimensionInfo.size.y}m</span>
+              </div>
+              <div className="p-1.5 rounded-lg bg-sky-950/30 border border-sky-500/40 text-sky-300">
+                <span className="text-slate-400 block text-[9px]">Depth (Z):</span>
+                <span className="font-bold">{dimensionInfo.size.z}m</span>
+              </div>
+            </div>
+            <div className="text-[10px] text-slate-400 pt-1 border-t border-slate-800/60 flex items-center justify-between">
+              <span>Centroid Pivot:</span>
+              <span className="font-mono text-amber-300">
+                [{dimensionInfo.center.x}, {dimensionInfo.center.y}, {dimensionInfo.center.z}]
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* FLOATING BOTTOM TRIPO/MIXAR PILL UTILITY BAR */}
         <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 p-1.5 bg-slate-950/90 border border-slate-800/90 rounded-2xl shadow-2xl backdrop-blur-md text-xs text-slate-300">
           <button
@@ -3136,6 +3480,19 @@ export const Canvas3D: React.FC<Canvas3DProps> = ({
           >
             <RotateCw className={`w-3.5 h-3.5 ${options.autoRotate ? 'animate-spin' : ''}`} />
             <span>360° Turntable</span>
+          </button>
+
+          <button
+            onClick={() => onOptionsChange?.({ ...options, showDimensions: !options.showDimensions })}
+            title="Toggle 3D Bounding Dimensions & Centroid Caliper [D]"
+            className={`px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition-all ${
+              options.showDimensions
+                ? 'bg-amber-950/80 border-amber-500/60 text-amber-300 shadow-sm'
+                : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Ruler className="w-3.5 h-3.5" />
+            <span>Dimensions</span>
           </button>
 
           {/* Key Light Orbit Slider */}
